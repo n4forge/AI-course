@@ -168,14 +168,18 @@ function plot(box, series, opts){
   series.forEach(s=>{
     const n=s.data.length; if(n<2) return;
     const X=i=>x+(i/(n-1))*w;
+    /* upto lets a curve be drawn part-way while keeping the full x scale,
+       so it grows left to right the way you draw it by hand */
+    const last=opts.upto===undefined? n-1
+             : Math.max(1,Math.min(n-1,Math.round(opts.upto*(n-1))));
     if(s.fill){
       g.beginPath(); g.moveTo(X(0),Y(Math.max(lo,Math.min(hi,0))));
-      for(let i=0;i<n;i++) g.lineTo(X(i),Y(s.data[i]));
-      g.lineTo(X(n-1),Y(Math.max(lo,Math.min(hi,0)))); g.closePath();
+      for(let i=0;i<=last;i++) g.lineTo(X(i),Y(s.data[i]));
+      g.lineTo(X(last),Y(Math.max(lo,Math.min(hi,0)))); g.closePath();
       g.fillStyle=s.fill; g.fill();
     }
     g.beginPath();
-    for(let i=0;i<n;i++){ const yy=Y(s.data[i]); i?g.lineTo(X(i),yy):g.moveTo(X(i),yy); }
+    for(let i=0;i<=last;i++){ const yy=Y(s.data[i]); i?g.lineTo(X(i),yy):g.moveTo(X(i),yy); }
     g.strokeStyle=s.colour; g.lineWidth=s.width||1.7;
     g.lineJoin='round'; g.lineCap='round';
     if(s.dash) g.setLineDash(s.dash);
@@ -555,24 +559,49 @@ function drawCircuit(){
   ][stage], measurePeriod(d.vc1,d.t,CIRCUIT.VCC/2));
 }
 
-/* ============================== the beam view =========================== */
-function drawBeam(){
-  const b=beamNow, gh=beamGhost;
-  const pad=76, right=W-40, wpx=right-pad;
-  const bands=stage+1;
-  const top=76, avail=H-top-104, rh=avail/Math.max(2,bands);
-  const X=xx=>pad+(xx/BEAM.L)*wpx;
+/* ============================== the beam view ===========================
+   Drawn the way it is drawn by hand: beam, then reactions, then the shear
+   built left to right jump by jump, then the moment accumulated as the area
+   under that shear, then the shape it bends into. One arrow press per step.
+   ======================================================================== */
+function beamPlan(){
+  const ev=[...new Set([0,...BEAM.loads.map(l=>+l.a.toFixed(4)),+BEAM.L.toFixed(4)])]
+            .sort((a,b)=>a-b).filter(v=>v>=0&&v<=BEAM.L);
+  const plan=[{k:'beam'},{k:'react'}];
+  for(let i=1;i<ev.length;i++) plan.push({k:'shear',from:ev[i-1],to:ev[i]});
+  for(let i=1;i<ev.length;i++) plan.push({k:'moment',from:ev[i-1],to:ev[i]});
+  plan.push({k:'defl'});
+  return plan;
+}
 
+function drawBeam(){
+  const b=beamNow, gh=beamGhost, plan=beamPlan();
+  STAGES.beam=plan.length;
+  const st=plan[Math.min(stage,plan.length-1)];
+  const shown={beam:1,react:2,shear:3,moment:4,defl:5}[st.k];
+
+  const pad=76, right=W-40, wpx=right-pad;
+  const bands=1+(shown>=3?1:0)+(shown>=4?1:0)+(shown>=5?1:0);
+  const top=78, avail=H-top-104, rh=avail/Math.max(2,bands);
+  const X=xx=>pad+(xx/BEAM.L)*wpx;
+  const at=xx=>Math.min(b.x.length-1,Math.max(0,Math.round(xx/BEAM.L*(b.x.length-1))));
+
+  /* ---------------- band 1: the beam itself ---------------- */
   const y0=top+rh*0.55;
   g.strokeStyle=INK; g.lineWidth=8; g.lineCap='butt';
   g.beginPath(); g.moveTo(X(0),y0); g.lineTo(X(BEAM.L),y0); g.stroke();
-  if(BEAM.fixed){
-    g.fillStyle=INK; g.fillRect(X(0)-13,y0-34,11,68);
-  } else [0,BEAM.L].forEach(xx=>{
+  if(BEAM.fixed) { g.fillStyle=INK; g.fillRect(X(0)-13,y0-34,11,68); }
+  else [0,BEAM.L].forEach((xx,k)=>{
     g.beginPath(); g.moveTo(X(xx),y0+5); g.lineTo(X(xx)-14,y0+27); g.lineTo(X(xx)+14,y0+27);
     g.closePath(); g.fillStyle=INK; g.fill();
-    g.fillStyle='#5b6472'; g.font='12px IBM Plex Mono, monospace'; g.textAlign='center';
-    g.fillText((xx?b.Rb:b.Ra).toFixed(1)+' kN', X(xx), y0+45); g.textAlign='left';
+    if(shown>=2){                              /* reactions appear at step 2 */
+      g.strokeStyle='#1d7a4f'; g.lineWidth=3;
+      g.beginPath(); g.moveTo(X(xx),y0+58); g.lineTo(X(xx),y0+30); g.stroke();
+      g.beginPath(); g.moveTo(X(xx),y0+28); g.lineTo(X(xx)-6,y0+40); g.lineTo(X(xx)+6,y0+40);
+      g.closePath(); g.fillStyle='#1d7a4f'; g.fill();
+      g.font='500 12px IBM Plex Mono, monospace'; g.textAlign='center';
+      g.fillText((k?b.Rb:b.Ra).toFixed(1)+' kN', X(xx), y0+74); g.textAlign='left';
+    }
   });
   if(BEAM.w>0){
     g.fillStyle='rgba(17,17,17,.10)'; g.fillRect(X(0),y0-28,wpx,23);
@@ -591,42 +620,97 @@ function drawBeam(){
     loadHandles[k]={x:xx,y:y0-len};
   });
 
-  const spec=[
-    {key:'V',label:'shear  V(x)',      unit:'kN',  colour:'#2f8f5b',fill:'rgba(47,143,91,.22)',s:1},
-    {key:'M',label:'moment  M(x)',     unit:'kNm', colour:'#c2410c',fill:'rgba(194,65,12,.22)',s:1},
-    {key:'d',label:'deflection',       unit:'mm',  colour:'#6d4bd0',fill:'rgba(109,75,208,.20)',s:1000},
-  ];
-  const metrics=[];
-  spec.forEach((sp,r)=>{
-    if(r+1>stage) return;
-    const y=top+rh*(r+1), box={x:pad,y:y+20,w:wpx,h:rh-38};
+  /* how far along has the construction got? */
+  const front = st.k==='shear'||st.k==='moment' ? st.to : BEAM.L;
+  const metrics=[]; let row=1;
+
+  function band(label,unit,key,colour,fill,scale,upto,strongFill){
+    const y=top+rh*row, box={x:pad,y:y+22,w:wpx,h:rh-40}; row++;
     g.fillStyle='#6b7280'; g.font='500 12px IBM Plex Mono, monospace';
-    g.fillText(sp.label+'   '+sp.unit, pad, y+13);
+    g.fillText(label+'   '+unit, pad, y+14);
     const series=[];
-    if(gh) series.push({data:gh[sp.key].map(v=>v*sp.s),colour:'#cfd3d8',width:1.4});
-    series.push({data:b[sp.key].map(v=>v*sp.s),colour:sp.colour,fill:sp.fill,width:2.2});
-    metrics.push({sp,box,m:plot(box,series,{zeroLine:true})});
-  });
+    if(gh&&upto===undefined) series.push({data:gh[key].map(v=>v*scale),colour:'#cfd3d8',width:1.4});
+    series.push({data:b[key].map(v=>v*scale),colour,
+                 fill:strongFill||fill,width:2.2});
+    const m=plot(box,series,{zeroLine:true,upto});
+    metrics.push({key,box,m,scale});
+    return {box,m};
+  }
+
+  /* ---------------- band 2: shear ---------------- */
+  if(shown>=3){
+    const upto = st.k==='shear' ? front/BEAM.L : undefined;
+    /* while the moment is being accumulated, the shear area is the thing to
+       look at, so it is filled solid rather than washed out */
+    const strong = st.k==='moment' ? 'rgba(47,143,91,.42)' : null;
+    const r=band('shear  V(x)','kN','V','#2f8f5b','rgba(47,143,91,.22)',1,
+                 st.k==='moment'? front/BEAM.L : upto, strong);
+    if(st.k==='shear'){
+      const i0=at(st.from), i1=at(st.to);
+      g.fillStyle='#1d7a4f'; g.font='500 12px IBM Plex Mono, monospace'; g.textAlign='center';
+      if(st.from===0){
+        g.fillText('+'+b.Ra.toFixed(1)+' at the support', X(0)+58, r.m.Y(b.V[0])-10);
+      } else {
+        const jump=b.V[i0]-b.V[Math.max(0,i0-1)];
+        const L2=BEAM.loads.find(l=>Math.abs(l.a-st.from)<1e-3);
+        if(L2) g.fillText('drops '+L2.P.toFixed(1),X(st.from),r.m.Y(b.V[i0])-10);
+      }
+      if(BEAM.w>0) g.fillText('slopes down at '+BEAM.w.toFixed(1)+' kN/m',
+                              (X(st.from)+X(st.to))/2, r.box.y+r.box.h-8);
+      g.textAlign='left';
+    }
+  }
+
+  /* ---------------- band 3: moment ---------------- */
+  if(shown>=4){
+    const upto = st.k==='moment' ? front/BEAM.L : undefined;
+    const r=band('moment  M(x)','kNm','M','#c2410c','rgba(194,65,12,.22)',1,upto);
+    if(st.k==='moment'){
+      g.fillStyle='#c2410c'; g.font='500 12px IBM Plex Mono, monospace'; g.textAlign='center';
+      g.fillText('area under the shear so far  =  '+b.M[at(front)].toFixed(1)+' kNm',
+                 (X(0)+X(front))/2, r.box.y-6);
+      g.textAlign='left';
+    }
+  }
+
+  /* ---------------- band 4: deflection ---------------- */
+  if(shown>=5) band('deflection','mm','d','#6d4bd0','rgba(109,75,208,.20)',1000);
+
+  /* the construction front, drawn down every band */
+  if(st.k==='shear'||st.k==='moment'){
+    g.strokeStyle='rgba(17,17,17,.35)'; g.lineWidth=1.5; g.setLineDash([5,4]);
+    g.beginPath(); g.moveTo(px(X(front)),top+8); g.lineTo(px(X(front)),top+rh*bands-24); g.stroke();
+    g.setLineDash([]);
+  }
 
   hoverBoxes=metrics.map(m=>m.box);
   if(cursor!==null && metrics.length){
-    const xx=cursor*BEAM.L, i=Math.min(b.x.length-1,Math.round(cursor*(b.x.length-1)));
+    const xx=cursor*BEAM.L, i=at(xx);
     g.strokeStyle='rgba(255,106,26,.9)'; g.lineWidth=1;
     g.beginPath(); g.moveTo(px(X(xx)),top+6); g.lineTo(px(X(xx)),top+rh*bands-24); g.stroke();
     metrics.forEach(mm=>{ g.fillStyle='#ff6a1a';
-      g.beginPath(); g.arc(X(xx),mm.m.Y(b[mm.sp.key][i]*mm.sp.s),4,0,6.2832); g.fill(); });
+      g.beginPath(); g.arc(X(xx),mm.m.Y(b[mm.key][i]*mm.scale),4,0,6.2832); g.fill(); });
     showReadout('x = '+xx.toFixed(2)+' m\nV   '+b.V[i].toFixed(2).padStart(8)+' kN\n'
       +'M   '+b.M[i].toFixed(2).padStart(8)+' kNm\ndef '+(b.d[i]*1000).toFixed(2).padStart(8)+' mm',cursor);
   } else hideReadout();
 
+  /* what the step is doing, in words, with the real numbers */
   const Mmax=Math.max(...b.M.map(Math.abs)), dmax=Math.max(...b.d.map(Math.abs));
-  caption([
-    'the free body diagram. it shows the loads, and hides everything they cause.',
-    'shear force, in place, on the same axis. no separate sketch.',
-    'bending moment. the integral of the band above it.',
-    'and the shape it actually takes. drag a load — the old shape stays behind.'
-  ][stage], null, 'max |M| '+Mmax.toFixed(1)+' kNm    max deflection '+(dmax*1000).toFixed(1)+' mm');
+  const iM=b.M.indexOf(Math.max(...b.M)), iD=b.d.map(Math.abs).indexOf(dmax);
+  let cap='', extra=null;
+  if(st.k==='beam')   cap='the beam and its loads. nothing else is known yet.';
+  if(st.k==='react')  cap='reactions first: moments about the left support give '
+                          +b.Ra.toFixed(1)+' kN, then vertical equilibrium gives '+b.Rb.toFixed(1)+' kN.';
+  if(st.k==='shear')  cap='shear, built left to right — from x = '+st.from.toFixed(2)
+                          +' m to '+st.to.toFixed(2)+' m.';
+  if(st.k==='moment') cap='moment is the running area under the shear diagram above it.';
+  if(st.k==='defl'){  cap='and the shape it bends into.';
+                      extra='max M '+Mmax.toFixed(1)+' kNm at x '+b.x[iM].toFixed(2)
+                           +' m   ·   max deflection '+(dmax*1000).toFixed(1)
+                           +' mm at x '+b.x[iD].toFixed(2)+' m — not the same place'; }
+  caption(cap,null,extra);
 }
+
 let loadHandles={}, hoverBoxes=[];
 
 function caption(text,period,extra){
