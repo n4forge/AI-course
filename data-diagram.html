@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagrams made of data — not of symbols</title>
+<meta name="description" content="Replace each part of a diagram with a plot of what is happening inside it. A circuit and a beam, both showing every quantity at once, with a ghost of the previous design.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0B0E14; --paper:#ECEFF4; --muted:#8792A6; --line:rgba(135,146,166,.18);
+  --amber:#FF6A1A; --cyan:#39C6E8; --page:#ffffff;
+  --volt:#3aa9d8; --curr:#e0a020; --ghost:#c8ccd2;
+  --shear:#2f8f5b; --mom:#c2410c; --defl:#6d4bd0;
+  --fm:'IBM Plex Mono',ui-monospace,monospace;
+  --fs:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--ink);color:var(--paper);font-family:var(--fs);
+  display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:4px}
+
+.top{flex:none;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:11px 18px;border-bottom:1px solid var(--line)}
+.brand{font-family:var(--fm);font-size:.74rem;letter-spacing:.16em;text-transform:uppercase;color:var(--amber)}
+.brand b{color:var(--paper);font-weight:500}
+.tabs{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.tab,.act{min-height:34px;padding:.35em .95em;border-radius:100px;border:1px solid var(--line);
+  background:transparent;color:var(--muted);font-family:var(--fm);font-size:.76rem;transition:.18s}
+.tab:hover,.act:hover{color:var(--paper);border-color:rgba(135,146,166,.5)}
+.tab[aria-selected="true"]{background:var(--paper);color:var(--ink);border-color:var(--paper);font-weight:500}
+.act{border-radius:8px}
+.act:hover{color:var(--amber);border-color:var(--amber)}
+.act[aria-pressed="true"]{background:var(--cyan);border-color:var(--cyan);color:var(--ink)}
+
+.hint{flex:none;text-align:center;font-family:var(--fm);font-size:.72rem;color:var(--muted);
+  padding:8px 18px;border-bottom:1px solid var(--line)}
+.hint b{color:var(--cyan);font-weight:500}
+.hint i{color:var(--ghost);font-style:normal}
+.hint span+span{margin-left:16px}
+
+.stage{flex:1;min-height:0;padding:16px;display:flex}
+.sheet{flex:1;background:var(--page);border-radius:8px;position:relative;overflow:hidden;
+  box-shadow:0 20px 54px rgba(0,0,0,.6)}
+canvas{display:block;width:100%;height:100%}
+
+.readout{position:absolute;pointer-events:none;z-index:5;font-family:var(--fm);font-size:.7rem;
+  background:rgba(11,14,20,.93);color:var(--paper);border:1px solid rgba(57,198,232,.45);
+  border-radius:7px;padding:7px 9px;opacity:0;transition:opacity .12s;white-space:pre;line-height:1.55}
+.readout.on{opacity:1}
+.readout b{color:var(--cyan);font-weight:500}
+
+.knobs{position:absolute;left:14px;bottom:12px;z-index:6;display:flex;gap:7px;flex-wrap:wrap;
+  align-items:center;font-family:var(--fm);font-size:.7rem}
+.knob{display:flex;align-items:center;gap:6px;background:#eef1f5;border:1px solid #d3d8de;
+  border-radius:100px;padding:4px 10px;color:#3b4250}
+.knob input[type=range]{-webkit-appearance:none;appearance:none;width:86px;height:4px;
+  background:#c3c9d1;border-radius:3px;outline:none;margin:0}
+.knob input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+  width:15px;height:15px;border-radius:50%;background:var(--cyan);border:2px solid #fff;
+  box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:grab}
+.knob input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;
+  background:var(--cyan);border:2px solid #fff;cursor:grab}
+.knob b{color:#0b0e14;font-weight:600;min-width:4.6em;text-align:right;font-variant-numeric:tabular-nums}
+.pill{background:#0b0e14;color:#eceff4;border:0;border-radius:100px;padding:6px 13px;
+  font-family:var(--fm);font-size:.7rem}
+.pill[aria-pressed="true"]{background:var(--amber);color:#160a02}
+
+@media(max-width:900px){ .stage{padding:8px} .tabs{margin-left:0;width:100%}
+  .knobs{position:static;margin:8px;justify-content:center} }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="brand">Made of <b>data</b></div>
+  <div class="tabs" role="tablist" aria-label="Diagrams"></div>
+  <button class="act" id="play" aria-pressed="true">Pause</button>
+  <button class="act" id="clearGhost">Clear ghost</button>
+</div>
+
+<div class="hint">
+  <span>Every part is replaced by <b>what is happening inside it</b></span>
+  <span>Move across it — <b>one cursor reads every plot at once</b></span>
+  <span>Change a value and the old shape stays as a <i>grey ghost</i></span>
+</div>
+
+<div class="stage">
+  <div class="sheet" id="sheet">
+    <canvas id="cv"></canvas>
+    <div class="readout" id="readout"></div>
+    <div class="knobs" id="knobs"></div>
+  </div>
+</div>
+
+<script>
+/* ==========================================================================
+   The idea, straight out of the talk.
+
+   A schematic shows you how things are wired and hides every number you
+   actually care about. So don't draw the symbol — draw the data, in the
+   place where the symbol was. Show every quantity at once instead of
+   probing one at a time. And when you change something, keep the old shape
+   on screen so you can see what your change did.
+
+   Two diagrams here. The circuit is his. The beam is the same idea moved
+   into mechanics: a beam is a network, loads are the sources, and shear and
+   moment are the quantities the drawing normally hides.
+   ========================================================================== */
+
+const cv=document.getElementById('cv'), g=cv.getContext('2d');
+const sheet=document.getElementById('sheet'), readout=document.getElementById('readout');
+const knobs=document.getElementById('knobs'), playBtn=document.getElementById('play');
+const tabsEl=document.querySelector('.tabs');
+let W=0,H=0,DPR=1;
+
+function resize(){
+  DPR=Math.min(2,devicePixelRatio||1);
+  W=sheet.clientWidth; H=sheet.clientHeight;
+  cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR);
+  g.setTransform(DPR,0,0,DPR,0,0);
+  draw();
+}
+addEventListener('resize',resize);
+
+/* ======================= drawing helpers, shared ========================= */
+const px=v=>Math.round(v)+0.5;
+
+function frame(x,y,w,h,label,sub){
+  g.fillStyle='#fbfcfd'; g.fillRect(x,y,w,h);
+  g.strokeStyle='#d7dbe0'; g.lineWidth=1;
+  g.strokeRect(px(x),px(y),Math.round(w),Math.round(h));
+  if(label){
+    g.fillStyle='#5b6472'; g.font='500 11px ' + 'IBM Plex Mono, monospace';
+    g.fillText(label, x+7, y+14);
+  }
+  if(sub){
+    g.fillStyle='#9aa2ad'; g.font='10px IBM Plex Mono, monospace';
+    g.fillText(sub, x+7, y+27);
+  }
+}
+
+/* a band of values plotted across a box. series = {data, colour, fill, zero} */
+function plot(box, series, opts){
+  opts=opts||{};
+  const {x,y,w,h}=box;
+  let lo=opts.lo, hi=opts.hi;
+  if(lo===undefined||hi===undefined){
+    lo=Infinity; hi=-Infinity;
+    series.forEach(s=>s.data.forEach(v=>{ if(v<lo)lo=v; if(v>hi)hi=v; }));
+    if(!isFinite(lo)){ lo=0; hi=1; }
+    const pad=(hi-lo)*0.12 || 0.5; lo-=pad; hi+=pad;
+  }
+  if(hi-lo<1e-12) hi=lo+1;
+  const Y=v=>y+h-((v-lo)/(hi-lo))*h;
+
+  if(opts.zeroLine && lo<0 && hi>0){
+    g.strokeStyle='#e6e9ec'; g.lineWidth=1;
+    g.beginPath(); g.moveTo(x,px(Y(0))); g.lineTo(x+w,px(Y(0))); g.stroke();
+  }
+  series.forEach(s=>{
+    const n=s.data.length; if(n<2) return;
+    const X=i=>x+(i/(n-1))*w;
+    if(s.fill){
+      g.beginPath(); g.moveTo(X(0),Y(Math.max(lo,Math.min(hi,0))));
+      for(let i=0;i<n;i++) g.lineTo(X(i),Y(s.data[i]));
+      g.lineTo(X(n-1),Y(Math.max(lo,Math.min(hi,0)))); g.closePath();
+      g.fillStyle=s.fill; g.fill();
+    }
+    g.beginPath();
+    for(let i=0;i<n;i++){ const yy=Y(s.data[i]); i?g.lineTo(X(i),yy):g.moveTo(X(i),yy); }
+    g.strokeStyle=s.colour; g.lineWidth=s.width||1.7;
+    g.lineJoin='round'; g.lineCap='round'; g.stroke();
+  });
+  return {Y,lo,hi};
+}
+
+/* ==========================================================================
+   1 — THE CIRCUIT.  An astable multivibrator: two transistors that take
+   turns switching each other off, which is why the two LEDs alternate.
+
+   The transistor is modelled as a switch that closes once its base reaches
+   about 0.7 V and holds the base there while it conducts. Each coupling
+   capacitor sits between one collector and the other base, and its branch
+   is solved by cases depending on which transistors are conducting. That is
+   enough to get the real waveforms and the real period.
+   ========================================================================== */
+const CIRCUIT={
+  VCC:9, VBE:0.7, VSAT:0.15,
+  Rb:70000, Rc:1200, C:22e-6,
+  T:6,                      /* window actually shown; recomputed per run */
+};
+
+function simulateCircuit(p){
+  const {VCC,VBE,VSAT}=CIRCUIT;
+  const Rb=p.Rb, Rc=p.Rc, C=p.C;
+  /* Always show about three and a half cycles, whatever the values are. A
+     fixed window meant slow RC combinations showed less than one cycle. */
+  const T=Math.max(1.5,Math.min(40, 3.5*1.386*Rb*C));
+  const steps=12000, dt=T/steps;
+  const keep=900;                              /* points kept for plotting */
+  const every=Math.max(1,Math.floor(steps/keep));
+
+  /* u1 across C1 (collector1 -> base2), u2 across C2 (collector2 -> base1).
+     Start where the circuit really is the instant Q1 switches on: C1 fully
+     charged, so base 2 has just been yanked down to about -VCC. */
+  let u1=VCC-VBE, u2=0;
+  let on1=true, on2=false;
+  const out={t:[],vb1:[],vb2:[],vc1:[],vc2:[],
+             iC1:[],iC2:[],iRb1:[],iRb2:[],iRc1:[],iRc2:[],
+             vC1:[],vC2:[],vRb1:[],vRb2:[],vRc1:[],vRc2:[]};
+
+  /* One coupling branch: capacitor between a collector and the other base.
+     vbFree is the base voltage with NO base-emitter clamp. That is what
+     decides whether the transistor conducts. Testing the CLAMPED voltage
+     instead makes it latch on for ever, because the clamp holds it at the
+     very threshold you are testing against. */
+  function branch(u, onColl, onBase){
+    let vc, vb, iCap, iRb, iRc;
+    const vbFree = onColl ? (VSAT-u)
+                          : (VCC - Rc*(-u/(Rc+Rb)) - u);
+    if(onColl && !onBase){                     /* collector pinned low, base ramping up */
+      vc=VSAT; vb=vc-u;
+      iRb=(VCC-vb)/Rb; iCap=-iRb;              /* charge arrives at the base side */
+      iRc=(VCC-vc)/Rc;
+    } else if(!onColl && onBase){              /* base pinned, collector recovering */
+      vb=VBE; vc=vb+u;
+      iRc=(VCC-vc)/Rc; iCap=iRc;
+      iRb=(VCC-vb)/Rb;
+    } else if(!onColl && !onBase){             /* both ends pulled up: cap relaxes */
+      iCap=-u/(Rc+Rb);
+      vc=VCC-Rc*iCap; vb=vc-u;
+      iRc=(VCC-vc)/Rc; iRb=(VCC-vb)/Rb;
+    } else {                                   /* both conducting: transient only */
+      vc=VSAT; vb=VBE; iCap=0;
+      iRc=(VCC-vc)/Rc; iRb=(VCC-vb)/Rb;
+    }
+    return {vc,vb,vbFree,iCap,iRb,iRc};
+  }
+
+  for(let k=0;k<steps;k++){
+    const b1=branch(u1,on1,on2);               /* gives vc1 and vb2 */
+    const b2=branch(u2,on2,on1);               /* gives vc2 and vb1 */
+    const vb1=b2.vb, vb2=b1.vb;
+
+    if(k%every===0){
+      out.t.push(k*dt);
+      out.vb1.push(vb1); out.vb2.push(vb2);
+      out.vc1.push(b1.vc); out.vc2.push(b2.vc);
+      out.iC1.push(b1.iCap*1000);  out.iC2.push(b2.iCap*1000);
+      out.iRb1.push(b2.iRb*1000);  out.iRb2.push(b1.iRb*1000);
+      out.iRc1.push(b1.iRc*1000);  out.iRc2.push(b2.iRc*1000);
+      out.vC1.push(u1);            out.vC2.push(u2);
+      out.vRb1.push(VCC-vb1);      out.vRb2.push(VCC-vb2);
+      out.vRc1.push(VCC-b1.vc);    out.vRc2.push(VCC-b2.vc);
+    }
+    u1+=b1.iCap/C*dt;
+    u2+=b2.iCap/C*dt;
+    u1=Math.max(-2*VCC,Math.min(2*VCC,u1));
+    u2=Math.max(-2*VCC,Math.min(2*VCC,u2));
+    on2=b1.vbFree>=VBE;                        /* unclamped, or it latches */
+    on1=b2.vbFree>=VBE;
+  }
+  out.T=T;
+  return out;
+}
+
+/* How long is one full cycle? Measured off the collector, which swings the
+   whole rail — the base is clamped at 0.7 V and never crosses anything. */
+function measurePeriod(sig,t,mid){
+  mid=mid===undefined?4.5:mid;
+  const cross=[];
+  for(let i=1;i<sig.length;i++)
+    if(sig[i-1]<mid && sig[i]>=mid) cross.push(t[i]);
+  if(cross.length>=3){                    /* skip the first, it is startup */
+    let sum=0;
+    for(let i=2;i<cross.length;i++) sum+=cross[i]-cross[i-1];
+    return sum/(cross.length-2);
+  }
+  if(cross.length===2) return cross[1]-cross[0];
+  return null;
+}
+
+/* eight parts of the circuit, in the order the signal goes round */
+const PARTS=[
+  {id:'C1', name:'22uF',  what:'coupling capacitor', v:'vC1', i:'iC1'},
+  {id:'Rb2',name:'70k',   what:'base resistor',      v:'vRb2',i:'iRb2'},
+  {id:'Q2', name:'Q2',    what:'transistor',         v:'vc2', i:'iRc2'},
+  {id:'L2', name:'1.2k',  what:'LED branch',         v:'vRc2',i:'iRc2'},
+  {id:'C2', name:'22uF',  what:'coupling capacitor', v:'vC2', i:'iC2'},
+  {id:'Rb1',name:'70k',   what:'base resistor',      v:'vRb1',i:'iRb1'},
+  {id:'Q1', name:'Q1',    what:'transistor',         v:'vc1', i:'iRc1'},
+  {id:'L1', name:'1.2k',  what:'LED branch',         v:'vRc1',i:'iRc1'},
+];
+
+/* ==========================================================================
+   2 — THE BEAM.  Same move. The drawing normally shows arrows and hides
+   shear, moment, slope and deflection, and we make students integrate it
+   twice in their heads. So put all four on one x axis, in place.
+
+   Shear and moment come straight from statics. Deflection is the double
+   integral of M/EI done numerically, so it works for any set of loads
+   without looking up a formula.
+   ========================================================================== */
+const BEAM={ L:6, EI:8000, w:4, N:400, fixed:false,
+             loads:[{a:2.0,P:12},{a:4.2,P:8}] };
+
+function simulateBeam(b){
+  const N=b.N, L=b.L, dx=L/(N-1);
+  const x=new Array(N), V=new Array(N), M=new Array(N);
+  const sumP=b.loads.reduce((s,l)=>s+l.P,0);
+
+  let Ra=0;
+  if(!b.fixed){                         /* simply supported: moments about A */
+    Ra=(b.loads.reduce((s,l)=>s+l.P*(L-l.a),0) + b.w*L*L/2)/L;
+  }
+  for(let i=0;i<N;i++){
+    const xi=i*dx; x[i]=xi;
+    if(!b.fixed){
+      let v=Ra-b.w*xi, m=Ra*xi-b.w*xi*xi/2;
+      b.loads.forEach(l=>{ if(xi>l.a){ v-=l.P; m-=l.P*(xi-l.a); } });
+      V[i]=v; M[i]=m;
+    } else {                            /* cantilever built in at the left */
+      let v=0, m=0;
+      b.loads.forEach(l=>{ if(l.a>=xi){ v+=l.P; m-=l.P*(l.a-xi); } });
+      const rem=L-xi;
+      v+=b.w*rem; m-=b.w*rem*rem/2;
+      V[i]=v; M[i]=m;
+    }
+  }
+
+  /* theta and delta by trapezoid, then satisfy the boundary conditions */
+  const th=new Array(N).fill(0), d=new Array(N).fill(0);
+  for(let i=1;i<N;i++) th[i]=th[i-1]+(M[i]+M[i-1])/2/b.EI*dx;
+  for(let i=1;i<N;i++) d[i]=d[i-1]+(th[i]+th[i-1])/2*dx;
+  if(!b.fixed){                         /* d(0)=0 already; force d(L)=0 */
+    const slope=d[N-1]/L;
+    for(let i=0;i<N;i++){ d[i]-=slope*x[i]; th[i]-=slope; }
+  }
+  return {x,V,M,th,d,Ra,Rb:sumP+b.w*L-Ra,sumP};
+}
+
+/* ============================== the two views ============================ */
+let view='circuit', running=true, t0=performance.now();
+let circuitNow=null, circuitGhost=null, beamNow=null, beamGhost=null;
+let cursor=null;                       /* 0..1 across the diagram */
+
+function recompute(keepGhost){
+  if(view==='circuit'){
+    if(!keepGhost && circuitNow) circuitGhost=circuitNow;
+    circuitNow=simulateCircuit(CIRCUIT);
+  } else {
+    if(!keepGhost && beamNow) beamGhost=beamNow;
+    beamNow=simulateBeam(BEAM);
+  }
+}
+
+let loadHandles={};
+
+/* ------------------------------------------------------------ circuit view */
+function drawCircuit(){
+  const d=circuitNow, gh=circuitGhost;
+  const pad=26, top=64, bottom=H-92;
+  const n=PARTS.length, gap=10;
+  const bw=(W-pad*2-gap*(n-1))/n, bh=Math.min(210,(bottom-top));
+  const y=top+18;
+
+  g.fillStyle='#3b4250'; g.font='500 12px IBM Plex Mono, monospace';
+  g.fillText('every part, replaced by what flows through it', pad, 30);
+  g.fillStyle='#9aa2ad'; g.font='11px IBM Plex Mono, monospace';
+  const per=measurePeriod(d.vc1,d.t,CIRCUIT.VCC/2);
+  g.fillText(per? 'one full flash cycle: '+per.toFixed(2)+' s' : 'settling...', pad, 46);
+
+  const bands=[];
+  PARTS.forEach((p,k)=>{
+    const x=pad+k*(bw+gap);
+    frame(x,y,bw,bh,p.name,p.what);
+    const inner={x:x+6,y:y+34,w:bw-12,h:(bh-44)/2-4};
+    const inner2={x:x+6,y:y+34+inner.h+8,w:bw-12,h:inner.h};
+
+    const sV=[]; const sI=[];
+    if(gh){ sV.push({data:gh[p.v],colour:'#c8ccd2',width:1.3});
+            sI.push({data:gh[p.i],colour:'#c8ccd2',width:1.3}); }
+    sV.push({data:d[p.v],colour:'#3aa9d8',fill:'rgba(58,169,216,.18)'});
+    sI.push({data:d[p.i],colour:'#e0a020',fill:'rgba(224,160,32,.20)'});
+
+    const mV=plot(inner,sV,{zeroLine:true});
+    const mI=plot(inner2,sI,{zeroLine:true});
+    bands.push({p,inner,inner2,mV,mI,x,bw});
+
+    g.fillStyle='#b9c0c8'; g.font='9px IBM Plex Mono, monospace';
+    g.fillText('volts', inner.x+1, inner.y+10);
+    g.fillText('mA',    inner2.x+1, inner2.y+10);
+  });
+
+  /* the two LEDs, actually blinking */
+  const WIN=d.T||CIRCUIT.T;
+  const tt=running? ((performance.now()-t0)/1000)%WIN : (cursor!==null?cursor*WIN:0);
+  const idx=Math.min(d.t.length-1,Math.max(0,Math.round(tt/WIN*(d.t.length-1))));
+  [[d.iRc1[idx],W/2-90],[d.iRc2[idx],W/2+50]].forEach(([cur,cx])=>{
+    const on=cur>3;
+    g.beginPath(); g.arc(cx,H-52,13,0,6.2832);
+    g.fillStyle=on?'#ff3b30':'#e8ebee'; g.fill();
+    g.strokeStyle='#b9c0c8'; g.lineWidth=1.5; g.stroke();
+    if(on){ g.beginPath(); g.arc(cx,H-52,21,0,6.2832);
+            g.fillStyle='rgba(255,59,48,.22)'; g.fill(); }
+  });
+  g.fillStyle='#7b838e'; g.font='10px IBM Plex Mono, monospace';
+  g.fillText('LED 1', W/2-104, H-26); g.fillText('LED 2', W/2+36, H-26);
+
+  /* one cursor, every plot at once */
+  if(cursor!==null){
+    const i=Math.min(d.t.length-1,Math.max(0,Math.round(cursor*(d.t.length-1))));
+    bands.forEach(b=>{
+      const cxx=b.inner.x+(i/(d.t.length-1))*b.inner.w;
+      g.strokeStyle='rgba(255,106,26,.85)'; g.lineWidth=1;
+      g.beginPath(); g.moveTo(px(cxx),b.inner.y); g.lineTo(px(cxx),b.inner2.y+b.inner2.h); g.stroke();
+      g.fillStyle='#ff6a1a';
+      g.beginPath(); g.arc(cxx,b.mV.Y(d[b.p.v][i]),3,0,6.2832); g.fill();
+      g.beginPath(); g.arc(cxx,b.mI.Y(d[b.p.i][i]),3,0,6.2832); g.fill();
+    });
+    let txt='t = '+d.t[i].toFixed(3)+' s\n';
+    PARTS.forEach(p=>{ txt+=p.name.padEnd(6)+d[p.v][i].toFixed(2).padStart(7)+' V  '
+                          +d[p.i][i].toFixed(2).padStart(7)+' mA\n'; });
+    showReadout(txt.trimEnd(), cursor);
+  } else hideReadout();
+}
+
+/* --------------------------------------------------------------- beam view */
+function drawBeam(){
+  const b=beamNow, gh=beamGhost;
+  const pad=64, right=W-30, wpx=right-pad;
+  const rows=4, top=56, avail=H-top-96, rh=avail/rows;
+  const X=xx=>pad+(xx/BEAM.L)*wpx;
+
+  g.fillStyle='#3b4250'; g.font='500 12px IBM Plex Mono, monospace';
+  g.fillText('the beam, and the three things the drawing normally hides', pad, 30);
+  g.fillStyle='#9aa2ad'; g.font='11px IBM Plex Mono, monospace';
+  const Mmax=Math.max(...b.M.map(Math.abs)), dmax=Math.max(...b.d.map(Math.abs));
+  g.fillText(BEAM.fixed
+    ? 'cantilever  ·  max |M| '+Mmax.toFixed(1)+' kNm  ·  max deflection '+(dmax*1000).toFixed(1)+' mm'
+    : 'simply supported  ·  Ra '+b.Ra.toFixed(1)+' kN  ·  Rb '+b.Rb.toFixed(1)+' kN'
+      +'  ·  max |M| '+Mmax.toFixed(1)+' kNm  ·  max deflection '+(dmax*1000).toFixed(1)+' mm', pad, 46);
+
+  /* row 1: the beam itself, with the loads you can drag */
+  const y0=top+rh*0.55;
+  frame(pad-14,top,wpx+28,rh-12,'the beam','drag a load sideways, or drag it up and down to change it');
+  g.strokeStyle='#22303e'; g.lineWidth=7; g.lineCap='butt';
+  g.beginPath(); g.moveTo(X(0),y0); g.lineTo(X(BEAM.L),y0); g.stroke();
+
+  if(BEAM.fixed){
+    g.fillStyle='#22303e'; g.fillRect(X(0)-12,y0-30,10,60);
+  } else {
+    [[0,b.Ra],[BEAM.L,b.Rb]].forEach(([xx])=>{
+      g.beginPath(); g.moveTo(X(xx),y0+4); g.lineTo(X(xx)-12,y0+24); g.lineTo(X(xx)+12,y0+24);
+      g.closePath(); g.fillStyle='#22303e'; g.fill();
+    });
+  }
+  if(BEAM.w>0){
+    g.fillStyle='rgba(34,48,62,.13)';
+    g.fillRect(X(0),y0-26,wpx,22);
+    g.fillStyle='#5b6472'; g.font='10px IBM Plex Mono, monospace';
+    g.fillText(BEAM.w.toFixed(1)+' kN/m', X(0)+6, y0-31);
+  }
+  BEAM.loads.forEach((l,k)=>{
+    const xx=X(l.a), len=16+l.P*2.1;
+    g.strokeStyle='#c2410c'; g.lineWidth=2.5;
+    g.beginPath(); g.moveTo(xx,y0-len); g.lineTo(xx,y0-5); g.stroke();
+    g.beginPath(); g.moveTo(xx,y0-3); g.lineTo(xx-6,y0-14); g.lineTo(xx+6,y0-14);
+    g.closePath(); g.fillStyle='#c2410c'; g.fill();
+    g.fillStyle='#c2410c'; g.font='500 11px IBM Plex Mono, monospace';
+    g.fillText(l.P.toFixed(1)+' kN', xx-16, y0-len-6);
+    loadHandles[k]={x:xx,y:y0-len};
+  });
+
+  /* rows 2-4: shear, moment, deflection — same x axis, read straight down */
+  const spec=[
+    {key:'V', label:'shear force  V(x)',      unit:'kN',  colour:'#2f8f5b', fill:'rgba(47,143,91,.20)'},
+    {key:'M', label:'bending moment  M(x)',   unit:'kNm', colour:'#c2410c', fill:'rgba(194,65,12,.20)'},
+    {key:'d', label:'deflection',             unit:'mm',  colour:'#6d4bd0', fill:'rgba(109,75,208,.16)'},
+  ];
+  const metrics=[];
+  spec.forEach((s,r)=>{
+    const y=top+rh*(r+1), box={x:pad,y:y+22,w:wpx,h:rh-40};
+    frame(pad-14,y,wpx+28,rh-12,s.label,s.unit);
+    const scale=s.key==='d'?1000:1;
+    const series=[];
+    if(gh) series.push({data:gh[s.key].map(v=>v*scale),colour:'#c8ccd2',width:1.4});
+    series.push({data:b[s.key].map(v=>v*scale),colour:s.colour,fill:s.fill,width:2.2});
+    metrics.push({s,box,m:plot(box,series,{zeroLine:true}),scale});
+  });
+
+  /* the cursor: one line down all four rows, values off every curve */
+  if(cursor!==null){
+    const xx=cursor*BEAM.L, i=Math.min(b.x.length-1,Math.round(cursor*(b.x.length-1)));
+    g.strokeStyle='rgba(255,106,26,.9)'; g.lineWidth=1;
+    g.beginPath(); g.moveTo(px(X(xx)),top+8); g.lineTo(px(X(xx)),top+rh*4-14); g.stroke();
+    metrics.forEach(mm=>{
+      g.fillStyle='#ff6a1a';
+      g.beginPath(); g.arc(X(xx),mm.m.Y(b[mm.s.key][i]*mm.scale),4,0,6.2832); g.fill();
+    });
+    showReadout('x = '+xx.toFixed(2)+' m\n'
+      +'V   '+b.V[i].toFixed(2).padStart(8)+' kN\n'
+      +'M   '+b.M[i].toFixed(2).padStart(8)+' kNm\n'
+      +'def '+(b.d[i]*1000).toFixed(2).padStart(8)+' mm', cursor);
+  } else hideReadout();
+}
+
+function showReadout(text,at){
+  readout.textContent=text; readout.classList.add('on');
+  const w=readout.offsetWidth||160;
+  readout.style.left=Math.max(8,Math.min(W-w-8, at*W-w/2))+'px';
+  readout.style.top='58px';
+}
+function hideReadout(){ readout.classList.remove('on'); }
+
+function draw(){
+  g.clearRect(0,0,W,H);
+  g.fillStyle='#fff'; g.fillRect(0,0,W,H);
+  if(view==='circuit'){ if(!circuitNow) recompute(true); drawCircuit(); }
+  else { if(!beamNow) recompute(true); drawBeam(); }
+}
+function loop(){ if(running&&view==='circuit') draw(); requestAnimationFrame(loop); }
+
+/* =============================== the knobs =============================== */
+function knob(label,min,max,step,get,set,fmt){
+  const d=document.createElement('label'); d.className='knob';
+  d.innerHTML=`<span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}"><b></b>`;
+  const inp=d.querySelector('input'), out=d.querySelector('b');
+  const sync=()=>{ inp.value=get(); out.textContent=fmt(get()); };
+  inp.addEventListener('input',()=>{ set(parseFloat(inp.value)); out.textContent=fmt(get());
+                                     recompute(false); draw(); });
+  sync(); knobs.appendChild(d); return sync;
+}
+function buildKnobs(){
+  knobs.innerHTML='';
+  if(view==='circuit'){
+    knob('base R',10000,200000,1000,()=>CIRCUIT.Rb,v=>CIRCUIT.Rb=v,v=>(v/1000).toFixed(0)+' k');
+    knob('collector R',200,5000,50,()=>CIRCUIT.Rc,v=>CIRCUIT.Rc=v,v=>(v/1000).toFixed(2)+' k');
+    knob('cap',1e-6,68e-6,1e-6,()=>CIRCUIT.C,v=>CIRCUIT.C=v,v=>(v*1e6).toFixed(0)+' uF');
+    knob('supply',3,15,0.5,()=>CIRCUIT.VCC,v=>CIRCUIT.VCC=v,v=>v.toFixed(1)+' V');
+  } else {
+    knob('span',3,12,0.5,()=>BEAM.L,v=>{BEAM.L=v;
+        BEAM.loads.forEach(l=>l.a=Math.min(l.a,v));},v=>v.toFixed(1)+' m');
+    knob('UDL',0,20,0.5,()=>BEAM.w,v=>BEAM.w=v,v=>v.toFixed(1)+' kN/m');
+    knob('EI',1000,40000,500,()=>BEAM.EI,v=>BEAM.EI=v,v=>(v/1000).toFixed(1)+'e3');
+    const p=document.createElement('button');
+    p.className='pill'; p.setAttribute('aria-pressed',String(BEAM.fixed));
+    p.textContent=BEAM.fixed?'cantilever':'simply supported';
+    p.onclick=()=>{ BEAM.fixed=!BEAM.fixed; p.setAttribute('aria-pressed',String(BEAM.fixed));
+                    p.textContent=BEAM.fixed?'cantilever':'simply supported';
+                    recompute(false); draw(); };
+    knobs.appendChild(p);
+  }
+}
+
+/* ============================ pointer handling =========================== */
+let dragging=null;
+sheet.addEventListener('pointermove',e=>{
+  const r=sheet.getBoundingClientRect();
+  const fx=(e.clientX-r.left)/r.width;
+
+  if(dragging!==null && view==='beam'){
+    const pad=64, wpx=(r.width-30)-pad;
+    const L=BEAM.L;
+    const a=Math.max(0,Math.min(L,((e.clientX-r.left)-pad)/wpx*L));
+    BEAM.loads[dragging].a=a;
+    const dy=dragging!==null? (dragging0Y-(e.clientY-r.top)) : 0;
+    BEAM.loads[dragging].P=Math.max(0.5,Math.min(40, dragStartP+dy*0.12));
+    recompute(true); draw(); return;
+  }
+  cursor=Math.max(0,Math.min(1,fx));
+  if(!(running&&view==='circuit')) draw();
+});
+sheet.addEventListener('pointerleave',()=>{ cursor=null; if(!(running&&view==='circuit')) draw(); });
+
+let dragging0Y=0, dragStartP=0;
+sheet.addEventListener('pointerdown',e=>{
+  if(view!=='beam') return;
+  const r=sheet.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  let best=null,bd=26;
+  Object.entries(loadHandles).forEach(([k,h])=>{
+    const dd=Math.hypot(mx-h.x,my-h.y); if(dd<bd){ bd=dd; best=+k; }
+  });
+  if(best===null) return;
+  e.preventDefault();
+  beamGhost=beamNow;                    /* freeze what it looked like before */
+  dragging=best; dragging0Y=my; dragStartP=BEAM.loads[best].P;
+  sheet.setPointerCapture(e.pointerId);
+});
+['pointerup','pointercancel'].forEach(ev=>sheet.addEventListener(ev,()=>{ dragging=null; }));
+
+playBtn.addEventListener('click',()=>{
+  running=!running; playBtn.setAttribute('aria-pressed',String(running));
+  playBtn.textContent=running?'Pause':'Play';
+  if(!running) draw();
+});
+document.getElementById('clearGhost').addEventListener('click',()=>{
+  circuitGhost=null; beamGhost=null; draw();
+});
+
+const VIEWS={circuit:'His circuit', beam:'Your beam'};
+tabsEl.innerHTML=Object.entries(VIEWS).map(([k,l])=>
+  `<button class="tab" role="tab" data-k="${k}" aria-selected="${k==='circuit'}">${l}</button>`).join('');
+tabsEl.addEventListener('click',e=>{
+  const b=e.target.closest('.tab'); if(!b) return;
+  view=b.dataset.k;
+  document.querySelectorAll('.tab').forEach(t=>t.setAttribute('aria-selected',String(t.dataset.k===view)));
+  playBtn.style.display=view==='circuit'?'':'none';
+  buildKnobs(); recompute(true); draw();
+  if(location.hash.slice(1)!==view) history.replaceState(null,'','#'+view);
+});
+addEventListener('hashchange',()=>{
+  const k=location.hash.slice(1);
+  if(VIEWS[k]){ const b=[...document.querySelectorAll('.tab')].find(t=>t.dataset.k===k); if(b) b.click(); }
+});
+
+view = VIEWS[location.hash.slice(1)] ? location.hash.slice(1) : 'circuit';
+document.querySelectorAll('.tab').forEach(t=>t.setAttribute('aria-selected',String(t.dataset.k===view)));
+playBtn.style.display=view==='circuit'?'':'none';
+buildKnobs(); recompute(true); resize(); loop();
+</script>
+</body>
+</html>
