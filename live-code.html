@@ -1,0 +1,1034 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Immediate connection — the code and the picture, side by side</title>
+<meta name="description" content="Edit the code and the picture changes as you type. Hover a line to see what it drew. Alt-drag any number to scrub it.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0B0E14; --paper:#ECEFF4; --muted:#8792A6; --line:rgba(135,146,166,.18);
+  --amber:#FF6A1A; --cyan:#39C6E8;
+  --page:#fdfcfa; --code:#23272e; --kw:#7b3fc4; --num:#1350d4; --str:#c0392b; --com:#5f9e7d;
+  --hl:#ff2e6a;
+  --fs:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
+  --fm:'IBM Plex Mono',ui-monospace,monospace;
+  --cw:12.5px;                     /* code font metrics, kept in one place */
+  --clh:1.72;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--ink);color:var(--paper);font-family:var(--fs);
+  display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:4px}
+
+/* ------------------------------------------------------------------ chrome */
+.top{flex:none;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:11px 18px;border-bottom:1px solid var(--line);background:rgba(11,14,20,.92)}
+.brand{font-family:var(--fm);font-size:.74rem;letter-spacing:.16em;text-transform:uppercase;color:var(--amber)}
+.brand b{color:var(--paper);font-weight:500}
+.tabs{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.tab,.act{min-height:34px;padding:.35em .95em;border-radius:100px;border:1px solid var(--line);
+  background:transparent;color:var(--muted);font-family:var(--fm);font-size:.76rem;transition:.18s}
+.tab:hover,.act:hover{color:var(--paper);border-color:rgba(135,146,166,.5)}
+.tab[aria-selected="true"]{background:var(--paper);color:var(--ink);border-color:var(--paper);font-weight:500}
+.act{border-radius:8px}
+.act:hover{color:var(--amber);border-color:var(--amber)}
+.act[aria-pressed="true"]{background:var(--hl);border-color:var(--hl);color:#fff}
+
+.hint{flex:none;text-align:center;font-family:var(--fm);font-size:.72rem;color:var(--muted);
+  padding:8px 18px;border-bottom:1px solid var(--line)}
+.hint b{color:var(--cyan);font-weight:500}
+.hint .k{border:1px solid var(--line);border-radius:4px;padding:.1em .4em;color:var(--paper)}
+.hint span+span{margin-left:14px}
+
+/* ------------------------------------------------------------- the "book" */
+.book{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:2px;
+  padding:16px;background:linear-gradient(#0B0E14,#12161f)}
+.page{background:var(--page);border-radius:3px;overflow:hidden;position:relative;min-width:0;
+  box-shadow:0 18px 50px rgba(0,0,0,.55)}
+.page.left{border-radius:10px 3px 3px 10px;display:grid;place-items:center;background:#cfe6f0;
+  box-shadow:inset -22px 0 26px -26px rgba(0,0,0,.5),0 18px 50px rgba(0,0,0,.55)}
+.page.right{border-radius:3px 10px 10px 3px;
+  box-shadow:inset 22px 0 26px -26px rgba(0,0,0,.5),0 18px 50px rgba(0,0,0,.55)}
+#stage{display:block;width:100%;height:100%;object-fit:contain}
+
+/* ---------------------------------------------------------------- the code */
+.editor{position:absolute;inset:0;overflow:hidden}
+.hl,#ta{
+  position:absolute;inset:0;margin:0;border:0;
+  padding:20px 22px 60px 54px;                /* left pad leaves room for line numbers */
+  font-family:var(--fm);font-size:var(--cw);line-height:var(--clh);
+  white-space:pre;overflow:auto;tab-size:4;
+  letter-spacing:0;word-spacing:0;
+}
+/* the highlight layer sits ON TOP but is click-through, EXCEPT on numbers.
+   So a click on a number opens its slider, and a click anywhere else falls
+   through to the textarea and puts the caret where you'd expect. */
+#ta{background:transparent;color:transparent;caret-color:var(--num);resize:none;z-index:1;
+  outline:none;-webkit-text-fill-color:transparent}
+#ta::selection{background:rgba(19,80,212,.2);-webkit-text-fill-color:transparent}
+.hl{color:var(--code);pointer-events:none;z-index:2}
+.hl .num,.hl .col{pointer-events:auto}
+
+.gutter{position:absolute;left:0;top:0;bottom:0;width:44px;z-index:3;pointer-events:none;
+  font-family:var(--fm);font-size:calc(var(--cw) * .82);line-height:var(--clh);
+  padding:20px 8px 60px 0;text-align:right;color:#b8bfc9;overflow:hidden;
+  background:linear-gradient(90deg,#f6f4f1,#f6f4f100)}
+.gutter i{display:block;font-style:normal}
+.gutter i.on{color:var(--hl);font-weight:600}
+
+.kw{color:var(--kw)} .str{color:var(--str)} .com{color:var(--com)} .fn{color:#1350d4}
+/* Numbers and colours look grabbable, with no modifier key to discover.
+   NOTHING here may change horizontal metrics — the highlight layer has to
+   stay character-for-character aligned with the textarea underneath, so no
+   padding, no margins, no inline swatches. Underlines are safe. */
+.num{color:var(--num);font-weight:600;cursor:ew-resize;
+  border-bottom:1px dashed rgba(19,80,212,.45)}
+.num:hover{background:rgba(19,80,212,.14);border-bottom-style:solid}
+.num.live{background:var(--num);color:#fff;border-bottom-color:transparent}
+
+/* a colour string shows its own colour as a thick underline. The TEXT stays
+   the normal string red — a pale hex would be invisible on white paper. */
+.col{cursor:pointer;border-bottom:3px solid var(--c,currentColor)}
+.col:hover{background:rgba(192,57,43,.12)}
+
+/* the slider, the way the talk does it: it appears over the code, on the number */
+.slider{position:fixed;z-index:70;display:none;align-items:center;gap:10px;
+  background:#171c26;border:1px solid rgba(57,198,232,.4);border-radius:100px;
+  padding:8px 14px;box-shadow:0 14px 34px rgba(0,0,0,.55);
+  font-family:var(--fm);font-size:.76rem;color:var(--paper)}
+.slider.on{display:flex}
+.slider .val{min-width:4.2em;text-align:right;color:#fff;font-weight:500;font-variant-numeric:tabular-nums}
+.slider .end{color:var(--muted);font-size:.66rem;min-width:2.6em;text-align:center}
+.slider input[type=range]{-webkit-appearance:none;appearance:none;width:180px;height:5px;
+  background:rgba(135,146,166,.35);border-radius:4px;outline:none;margin:0}
+.slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+  width:19px;height:19px;border-radius:50%;background:var(--cyan);cursor:grab;
+  border:2px solid #0b0e14;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+.slider input[type=range]::-moz-range-thumb{width:19px;height:19px;border-radius:50%;
+  background:var(--cyan);cursor:grab;border:2px solid #0b0e14}
+.slider input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(255,106,26,.6)}
+.slider .x,.palette .x{background:none;border:0;color:var(--muted);font-size:1rem;line-height:1;padding:0 2px}
+.slider .x:hover,.palette .x:hover{color:var(--paper)}
+
+/* ------------------------------------------------------------ the palette */
+.palette{position:fixed;z-index:70;display:none;width:298px;
+  background:#171c26;border:1px solid rgba(57,198,232,.4);border-radius:14px;
+  padding:12px;box-shadow:0 18px 42px rgba(0,0,0,.6);
+  font-family:var(--fm);font-size:.72rem;color:var(--paper)}
+.palette.on{display:block}
+.pal-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.pal-now{width:26px;height:26px;border-radius:7px;flex:none;
+  border:1px solid rgba(255,255,255,.28);box-shadow:inset 0 0 0 1px rgba(0,0,0,.4)}
+.pal-head input[type=text]{flex:1;min-width:0;background:#0b0e14;color:var(--paper);
+  border:1px solid var(--line);border-radius:7px;padding:6px 8px;
+  font-family:var(--fm);font-size:.76rem;text-transform:lowercase}
+.pal-head input[type=text]:focus{border-color:var(--cyan);outline:none}
+.pal-head input[type=color]{width:30px;height:28px;padding:0;flex:none;cursor:pointer;
+  background:none;border:1px solid var(--line);border-radius:7px}
+.pal-label{color:var(--muted);font-size:.62rem;letter-spacing:.12em;
+  text-transform:uppercase;margin:10px 0 6px}
+.pal-grid{display:grid;grid-template-columns:repeat(10,1fr);gap:3px}
+.pal-grid button{width:100%;aspect-ratio:1;border-radius:4px;border:1px solid rgba(255,255,255,.14);
+  padding:0;cursor:pointer;transition:transform .1s ease}
+.pal-grid button:hover{transform:scale(1.28);border-color:#fff;z-index:1}
+.pal-grid button[aria-current="true"]{box-shadow:0 0 0 2px var(--cyan)}
+
+.readout{position:fixed;z-index:60;pointer-events:none;transform:translate(-50%,-150%);
+  background:var(--ink);color:var(--paper);font-family:var(--fm);font-size:.74rem;
+  padding:.35em .7em;border-radius:6px;border:1px solid rgba(57,198,232,.45);
+  box-shadow:0 8px 22px rgba(0,0,0,.5);opacity:0;transition:opacity .12s}
+.readout.on{opacity:1}
+
+.err{position:absolute;left:14px;right:14px;bottom:12px;z-index:5;background:#c0392b;color:#fff;
+  font-family:var(--fm);font-size:.72rem;padding:.55em .8em;border-radius:6px;
+  opacity:0;transition:opacity .2s;pointer-events:none}
+.err.on{opacity:1}
+.badge{position:absolute;left:14px;top:14px;z-index:4;font-family:var(--fm);font-size:.68rem;
+  letter-spacing:.08em;text-transform:uppercase;background:var(--hl);color:#fff;
+  padding:.35em .7em;border-radius:6px;opacity:0;transition:opacity .15s}
+.badge.on{opacity:1}
+
+@media(max-width:900px){
+  body{overflow:auto}
+  .book{grid-template-columns:1fr;height:auto;padding:12px;gap:12px}
+  .page{border-radius:8px!important;box-shadow:0 10px 30px rgba(0,0,0,.5)!important}
+  .page.left{aspect-ratio:1/1}
+  .page.right{height:64vh}
+  .tabs{margin-left:0;width:100%}
+}
+@media(prefers-reduced-motion:reduce){*{transition-duration:.001ms!important}}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="brand">Immediate <b>connection</b></div>
+  <div class="tabs" role="tablist" aria-label="Demos"></div>
+  <button class="act" id="lens" aria-pressed="true" title="Hover a line to see what it drew">Line lens</button>
+  <button class="act" id="reseed" hidden>New tree</button>
+  <button class="act" id="reset">Reset</button>
+</div>
+
+<div class="hint">
+  <span><b>Click a number</b> — slider</span>
+  <span><b>Click a colour</b> — palette</span>
+  <span><b>Hover a line</b> — see what it drew</span>
+  <span><b>Type</b> — it redraws as you edit</span>
+</div>
+
+<div class="book">
+  <div class="page left">
+    <canvas id="stage" width="640" height="640"></canvas>
+    <div class="badge" id="badge"></div>
+    <div class="err" id="err"></div>
+  </div>
+  <div class="page right">
+    <div class="editor" id="editor">
+      <pre class="hl" id="hl" aria-hidden="true"></pre>
+      <textarea id="ta" spellcheck="false" autocomplete="off" autocapitalize="off"
+                aria-label="Source code — edit it and the picture changes"></textarea>
+      <div class="gutter" id="gutter" aria-hidden="true"></div>
+    </div>
+  </div>
+</div>
+
+<div class="readout" id="readout"></div>
+
+<div class="slider" id="slider" role="group" aria-label="Change this number">
+  <span class="end" id="smin"></span>
+  <input type="range" id="srange" aria-label="Value">
+  <span class="end" id="smax"></span>
+  <span class="val" id="sval"></span>
+  <button class="x" id="sclose" aria-label="Close slider">&times;</button>
+</div>
+
+<div class="palette" id="palette" role="dialog" aria-label="Choose a colour">
+  <div class="pal-head">
+    <span class="pal-now" id="palNow"></span>
+    <input type="text" id="palHex" spellcheck="false" autocomplete="off" aria-label="Hex value">
+    <input type="color" id="palPick" aria-label="Pick any colour">
+    <button class="x" id="palClose" aria-label="Close palette">&times;</button>
+  </div>
+  <div class="pal-grid" id="palGrid"></div>
+  <div class="pal-label" id="palMineLabel">Already in this drawing</div>
+  <div class="pal-grid" id="palMine"></div>
+</div>
+
+<script>
+/* ==========================================================================
+   Bret Victor's point, made runnable.
+
+   Three things, all from Inventing on Principle:
+     1. The code is live. Edit it, the picture changes. No run button.
+     2. Hover a line and the picture shows you what THAT line drew, in pink.
+        This is the one that teaches — code stops being a wall of text and
+        becomes a set of things you can point at.
+     3. Alt-drag a number to scrub it, so you never have to imagine a value.
+   ========================================================================== */
+
+const DEMOS = {
+
+tree: { label:'Cherry tree', seeded:true, code:
+`var canvasWidth  = 640;
+var canvasHeight = 640;
+var blossomPoints;
+
+function drawScene () {
+    drawSky();
+    drawMountains();
+    drawTree();
+}
+
+//------------------------------------------------------------------
+//
+//  sky
+//
+
+function drawSky () {
+    var gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
+    gradient.addColorStop(0, "#b4e0fe");
+    gradient.addColorStop(1, "#d3f8ff");
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+    ctx.fillStyle = "#ecff6a";
+    ctx.fillCircle(470, 118, 62);
+}
+
+//------------------------------------------------------------------
+//
+//  mountains
+//
+
+function drawMountains () {
+    var shades = ["#93aba8", "#7d9a99", "#63838a"];
+
+    for (var k = 0; k < 3; k++) {
+        ctx.fillStyle = shades[k];
+        ctx.beginPath();
+        ctx.moveTo(0, canvasHeight);
+        for (var x = 0; x <= canvasWidth; x += 16) {
+            ctx.lineTo(x, 440 + k * 58 - 62 * Math.sin(x / 150 + k * 2)
+                                       - 26 * Math.sin(x / 47 + k));
+        }
+        ctx.lineTo(canvasWidth, canvasHeight);
+        ctx.fill();
+    }
+}
+
+//------------------------------------------------------------------
+//
+//  tree
+//
+
+function drawTree () {
+    blossomPoints = [];
+    drawBranches(0, -1.57, 320, 624, 116, 26);
+    drawBlossoms(blossomPoints);
+}
+
+function drawBranches (i, angle, x, y, length, width) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, -width / 2, length, width);
+    ctx.restore();
+
+    var tipX = x + (length - width / 2) * Math.cos(angle);
+    var tipY = y + (length - width / 2) * Math.sin(angle);
+
+    if (i > 6) {
+        blossomPoints.push([x, y, tipX, tipY]);
+    }
+
+    if (i < 6) {
+        drawBranches(i + 1, angle + random(-0.15, -0.05) * Math.PI,
+                     tipX, tipY, length * 0.78, width * 0.72);
+        drawBranches(i + 1, angle + random(0.15, 0.05) * Math.PI,
+                     tipX, tipY, length * 0.78, width * 0.72);
+    }
+    else if (i < 11) {
+        drawBranches(i + 1, angle + random(0.25, -0.05) * Math.PI,
+                     tipX, tipY, length * 0.86, width * 0.8);
+    }
+}
+
+function drawBlossoms (points) {
+    var colors = ["#f5ceea", "#e8d9e4", "#f7c9f3", "#ebb4cc", "#f2b8d8"];
+    ctx.globalAlpha = 0.6;
+
+    for (var i = 0; i < points.length; i++) {
+        var p = points[i];
+        for (var j = 0; j < 10; j++) {
+            var bx = lerp(p[0], p[2], random(0, 1)) + random(-10, 10);
+            var by = lerp(p[1], p[3], random(0, 1)) + random(-10, 10);
+            ctx.fillStyle = colors[Math.floor(random(0, colors.length))];
+            ctx.fillCircle(bx, by, random(2, 5));
+        }
+    }
+    ctx.globalAlpha = 1;
+}
+
+drawScene();`
+},
+
+otto: { label:'Otto cycle', code:
+`// The air-standard Otto cycle — what happens inside a petrol engine.
+// Drag the compression ratio. Watch TWO things at once: the enclosed
+// area (that is the work you get out) and the efficiency number.
+
+var r      = 9;      // compression ratio
+var gamma  = 1.4;    // air
+var P1     = 1;      // bar, at bottom dead centre
+var heatIn = 26;     // how hard you burn the mixture
+
+//------------------------------------------------------------------
+//
+//  the four corners of the cycle
+//
+
+var V1 = 1;
+var V2 = V1 / r;
+
+var P2 = P1 * pow(r, gamma);          // isentropic compression
+var P3 = P2 + heatIn;                 // burn at constant volume
+var P4 = P3 / pow(r, gamma);          // isentropic expansion
+
+var eta = 1 - pow(1 / r, gamma - 1);  // straight from the analysis
+
+//------------------------------------------------------------------
+//
+//  draw it
+//
+
+var Pmax = P3 * 1.12;
+function X (V) { return 90 + V / (V1 * 1.15) * 480; }
+function Y (P) { return 540 - P / Pmax * 450; }
+
+ctx.fillStyle = "#fbfaf7";
+ctx.fillRect(0, 0, 640, 640);
+
+ctx.strokeStyle = "#c9ccd2";
+ctx.lineWidth = 1.5;
+ctx.beginPath();
+ctx.moveTo(X(0), Y(0));  ctx.lineTo(X(V1 * 1.15), Y(0));
+ctx.moveTo(X(0), Y(0));  ctx.lineTo(X(0), Y(Pmax));
+ctx.stroke();
+
+// the enclosed area IS the work per cycle
+ctx.beginPath();
+for (var i = 0; i <= 60; i++) {
+    var V = V2 + (V1 - V2) * i / 60;
+    ctx.lineTo(X(V), Y(P1 * pow(V1 / V, gamma)));
+}
+for (var j = 60; j >= 0; j--) {
+    var W = V2 + (V1 - V2) * j / 60;
+    ctx.lineTo(X(W), Y(P3 * pow(V2 / W, gamma)));
+}
+ctx.fillStyle = "#ffd9a8";
+ctx.fill();
+ctx.strokeStyle = "#c2410c";
+ctx.lineWidth = 3;
+ctx.stroke();
+
+// mark the corners
+ctx.fillStyle = "#22303e";
+ctx.fillCircle(X(V1), Y(P1), 6);
+ctx.fillCircle(X(V2), Y(P2), 6);
+ctx.fillCircle(X(V2), Y(P3), 6);
+ctx.fillCircle(X(V1), Y(P4), 6);
+
+ctx.font = "26px sans-serif";
+ctx.fillStyle = "#c2410c";
+ctx.fillText("efficiency " + round(eta * 100) + "%", 200, 82);
+ctx.font = "17px sans-serif";
+ctx.fillStyle = "#6b7280";
+ctx.fillText("compression ratio " + round(r * 10) / 10 + " : 1", 200, 110);
+ctx.fillText("peak pressure " + round(P3) + " bar", 200, 134);`
+},
+
+venturi: { label:'Venturi', code:
+`// Squeeze the throat of a pipe and the flow speeds up. Bernoulli says
+// the pressure has to fall to pay for it. Drag throatD down and watch
+// the pressure line dive — then keep going, and see what breaks.
+
+var inletD  = 110;    // mm
+var throatD = 45;     // mm
+var Q       = 14;     // litres per second
+var rho     = 1000;   // water
+
+//------------------------------------------------------------------
+//
+//  the duct: a smooth contraction and expansion
+//
+
+function radiusAt (u) {
+    var blend = 0.5 - 0.5 * cos(u * 6.2832);   // 0 at the ends, 1 at the middle
+    return (inletD - (inletD - throatD) * blend) / 2;
+}
+
+function speedAt (u) {
+    var area = 3.14159 * pow(radiusAt(u) / 1000, 2);
+    return (Q / 1000) / area;                  // metres per second
+}
+
+var vIn     = speedAt(0);
+var vThroat = speedAt(0.5);
+var dropPa  = 0.5 * rho * (vThroat * vThroat - vIn * vIn);
+var dropBar = dropPa / 100000;
+
+//------------------------------------------------------------------
+//
+//  draw the duct, coloured by how fast the water is moving
+//
+
+ctx.fillStyle = "#f7f9fb";
+ctx.fillRect(0, 0, 640, 640);
+
+var axis = 250;
+for (var i = 0; i < 120; i++) {
+    var u = i / 120;
+    var rad = radiusAt(u) * 0.85;
+    var hot = min(1, speedAt(u) / 14);
+    ctx.fillStyle = "rgb(" + round(40 + 200 * hot) + ","
+                           + round(150 - 90 * hot) + ","
+                           + round(230 - 120 * hot) + ")";
+    ctx.fillRect(60 + u * 520, axis - rad, 6, rad * 2);
+}
+
+ctx.strokeStyle = "#22303e";
+ctx.lineWidth = 3;
+ctx.beginPath();
+for (var a = 0; a <= 120; a++) { ctx.lineTo(60 + a / 120 * 520, axis - radiusAt(a / 120) * 0.85); }
+ctx.stroke();
+ctx.beginPath();
+for (var b = 0; b <= 120; b++) { ctx.lineTo(60 + b / 120 * 520, axis + radiusAt(b / 120) * 0.85); }
+ctx.stroke();
+
+//------------------------------------------------------------------
+//
+//  the pressure along the pipe
+//
+
+ctx.strokeStyle = "#c9ccd2";
+ctx.lineWidth = 1.5;
+ctx.beginPath();
+ctx.moveTo(60, 470); ctx.lineTo(580, 470);
+ctx.stroke();
+
+ctx.strokeStyle = "#c2410c";
+ctx.lineWidth = 3;
+ctx.beginPath();
+for (var c = 0; c <= 120; c++) {
+    var uu = c / 120;
+    var p  = 1 - (0.5 * rho * (pow(speedAt(uu), 2) - vIn * vIn)) / 100000;
+    ctx.lineTo(60 + uu * 520, 470 - p * 90);
+}
+ctx.stroke();
+
+ctx.font = "17px sans-serif";
+ctx.fillStyle = "#6b7280";
+ctx.fillText("throat speed " + round(vThroat * 10) / 10 + " m/s", 62, 560);
+ctx.fillText("pressure drop " + round(dropBar * 100) / 100 + " bar", 62, 586);
+
+if (dropBar > 1) {
+    ctx.fillStyle = "#c0392b";
+    ctx.font = "22px sans-serif";
+    ctx.fillText("pressure below zero — it would cavitate", 62, 618);
+}`
+},
+
+wave: { label:'Vibration', animated:true, code:
+`// Two waves added together — the reason machines shake.
+// Drag freqB from 3.4 towards 3 and watch the beat appear.
+
+var freqA = 3;
+var freqB = 3.4;
+var ampA  = 90;
+var ampB  = 70;
+var decay = 0;
+
+ctx.fillStyle = "#0f1420";
+ctx.fillRect(0, 0, 640, 640);
+
+function trace (colour, thickness, fn) {
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = thickness;
+    ctx.beginPath();
+    for (var x = 0; x <= 640; x++) {
+        ctx.lineTo(x, 320 + fn(x / 640 * 6.2832));
+    }
+    ctx.stroke();
+}
+
+function envelope (u) {
+    return Math.exp(-decay * u);
+}
+
+trace("#39c6e8", 1.5, function (u) {
+    return ampA * Math.sin(u * freqA + t) * envelope(u) * 0.5;
+});
+
+trace("#ff6a1a", 1.5, function (u) {
+    return ampB * Math.sin(u * freqB + t) * envelope(u) * 0.5;
+});
+
+trace("#eceff4", 3, function (u) {
+    return (ampA * Math.sin(u * freqA + t)
+          + ampB * Math.sin(u * freqB + t)) * envelope(u) * 0.5;
+});
+
+ctx.fillStyle = "#8792a6";
+ctx.fillRect(0, 319, 640, 1);`
+}
+};
+
+/* ==========================================================================
+   Tokenizer — gives us colours, the numbers, and their exact offsets
+   ========================================================================== */
+const TOK = new RegExp([
+  '(\\/\\/[^\\n]*)',
+  '("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')',
+  /* hex, then exponent form, then plain — all as ONE token. Splitting
+     "3.4e+43" into three tokens is what corrupted the source before. */
+  '(0[xX][0-9a-fA-F]+|(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?)',
+  '\\b(var|let|const|function|if|else|for|while|return|new|true|false|null)\\b',
+  '([A-Za-z_$][\\w$]*)',
+  '(\\s+)',
+  '([\\s\\S])'
+].join('|'), 'g');
+const UNARY_BEFORE = '(,=+-*/%<>?:[{;&|!';
+
+function tokenize(src){
+  const out=[]; let m; TOK.lastIndex=0;
+  while((m=TOK.exec(src))!==null){
+    const at=m.index;
+    if(m[1]) out.push({t:'com',v:m[1],at});
+    else if(m[2]) out.push({t:'str',v:m[2],at});
+    else if(m[3]) out.push({t:'num',v:m[3],at});
+    else if(m[4]) out.push({t:'kw',v:m[4],at});
+    else if(m[5]) out.push({t:'id',v:m[5],at});
+    else if(m[6]) out.push({t:'ws',v:m[6],at});
+    else out.push({t:'p',v:m[7],at});
+  }
+  /* a unary minus belongs to the number, so scrubbing can cross zero */
+  for(let i=1;i<out.length;i++){
+    if(out[i].t!=='num'||out[i-1].v!=='-') continue;
+    let j=i-2; while(j>=0&&out[j].t==='ws') j--;
+    const prev=j>=0?out[j]:null;
+    const unary=!prev||prev.t==='kw'||(prev.t==='p'&&UNARY_BEFORE.indexOf(prev.v)>=0);
+    if(unary){ out[i].v='-'+out[i].v; out[i].at=out[i-1].at; out[i-1]={t:'ws',v:'',at:out[i-1].at}; }
+  }
+  return out;
+}
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+/* ---- reading and writing numbers safely --------------------------------
+   Anything past 1e21 makes toFixed emit scientific notation, which used to
+   corrupt the source. So values are clamped well below that, and decimals
+   are counted from the mantissa only.
+   ---------------------------------------------------------------------- */
+const NUM_LIMIT = 1e9;
+function decimalsOf(text){
+  if(/^-?0[xX]/.test(text)) return 0;
+  const mantissa=text.replace(/[eE][+-]?\d+$/,'');
+  const dot=mantissa.indexOf('.');
+  return dot<0 ? 0 : Math.min(12, mantissa.length-dot-1);
+}
+function fmtNum(v,dec){
+  if(!isFinite(v)) v=0;
+  v=Math.max(-NUM_LIMIT, Math.min(NUM_LIMIT, v));
+  return v.toFixed(Math.max(0,Math.min(12,dec)));      /* never exponential */
+}
+/* a string token that is really a colour, so we can offer a palette for it */
+function colourOf(tokenText){
+  const m=/^(['"])(#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8}))\1$/.exec(tokenText);
+  return m ? m[2] : null;
+}
+
+/* ==========================================================================
+   Line instrumentation — this is what makes "hover a line" possible.
+   We inject __L(n) at the start of every statement, so while the code runs
+   we always know which line we are on. Only ever at a real statement
+   boundary, so it cannot change what the program means.
+   ========================================================================== */
+function instrument(src){
+  const toks=tokenize(src);
+  /* tokens that can never begin a statement — putting a marker before one
+     of these would change or break the code */
+  const CANT_START=new Set([';',',',':','.',')',']','}','=','?']);
+  /* these attach to what came before, and whatever follows them is a BODY,
+     not a new statement — a marker either side of them changes the meaning.
+     Getting this wrong turns "else if" into an always-running "if". */
+  const CONTINUES=new Set(['else','catch','finally','while','do','try','case','default']);
+  /* a "{" is a block if it appears where a statement could go, and an object
+     literal if it appears where a value is expected. Only a block's closing
+     brace ends a statement — this is what "return {...}" needs us to know. */
+  const opensValue=new Set(['(',',','=',':','[','+','-','*','/','%','<','>','?','&','|','!']);
+
+  let out='', line=1, depth=0, atBoundary=true, prev=null;
+  const braces=[];
+
+  for(const tk of toks){
+    if(tk.t==='ws'){ line+=(tk.v.match(/\n/g)||[]).length; out+=tk.v; continue; }
+    if(tk.t==='com'){ out+=tk.v; continue; }
+
+    if(tk.t==='p'){
+      if(tk.v==='('||tk.v==='[') depth++;
+      else if(tk.v===')'||tk.v===']') depth--;
+    }
+
+    /* match on the word itself, not the token type — the tokenizer does not
+       treat catch/finally/do/try as keywords, but they behave like them */
+    const blocked = (tk.t==='p' && CANT_START.has(tk.v)) || CONTINUES.has(tk.v);
+    if(atBoundary && depth===0 && !blocked){ out+=`__L(${line});`; atBoundary=false; }
+    out+=tk.v;
+
+    if(CONTINUES.has(tk.v)) atBoundary=false;   // what follows is their body
+
+    if(tk.t==='p'){
+      if(tk.v==='{'){
+        const isObject = prev!==null &&
+          ((prev.t==='p' && opensValue.has(prev.v)) || (prev.t==='kw' && prev.v==='return'));
+        braces.push(!isObject);
+        if(depth===0 && !isObject) atBoundary=true;
+      } else if(tk.v==='}'){
+        const wasBlock=braces.pop();
+        if(depth===0 && wasBlock!==false) atBoundary=true;
+      } else if(tk.v===';'){
+        if(depth===0) atBoundary=true;
+      }
+    }
+    prev=tk;
+  }
+  return out;
+}
+
+/* seeded random, so the tree holds still while you change one thing */
+function seededRandom(seed){
+  let s=seed>>>0;
+  return function(a,b){
+    s=(s+0x6D2B79F5)|0;
+    let t=Math.imul(s^(s>>>15),1|s);
+    t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    const r=((t^(t>>>14))>>>0)/4294967296;
+    if(a===undefined) return r;
+    if(b===undefined) return r*a;
+    return a+r*(b-a);
+  };
+}
+const lerp=(a,b,u)=>a+(b-a)*u;
+
+/* A small maths library, so the demos read like the formulas they are —
+   pow(r, gamma), not Math.pow(r, Math.gamma-ish). Passed into every run. */
+const LIB={ floor:Math.floor, ceil:Math.ceil, round:Math.round, abs:Math.abs,
+            min:Math.min, max:Math.max, sqrt:Math.sqrt, pow:Math.pow,
+            exp:Math.exp, log:Math.log, log10:Math.log10,
+            sin:Math.sin, cos:Math.cos, tan:Math.tan, atan2:Math.atan2, PI:Math.PI };
+
+/* ========================================================================== */
+const stage=document.getElementById('stage'), vis=stage.getContext('2d');
+const off=document.createElement('canvas'); off.width=off.height=640;
+const octx=off.getContext('2d');
+octx.fillCircle=function(x,y,r){this.beginPath();this.arc(x,y,r,0,6.2832);this.fill();};
+octx.strokeCircle=function(x,y,r){this.beginPath();this.arc(x,y,r,0,6.2832);this.stroke();};
+
+const ta=document.getElementById('ta'), hlEl=document.getElementById('hl');
+const gutter=document.getElementById('gutter'), editor=document.getElementById('editor');
+const errEl=document.getElementById('err'), badge=document.getElementById('badge');
+const readout=document.getElementById('readout'), tabsEl=document.querySelector('.tabs');
+const lensBtn=document.getElementById('lens'), reseedBtn=document.getElementById('reseed');
+
+let demoKey='tree', demo=null, src='', tokens=[], nums=[], cols=[];
+let compiled=null, dirty=true, seed=7, t0=performance.now();
+let curLine=0, hoverLine=null, lensOn=true, lineCount=1;
+
+/* --- the highlight: while the hovered line runs, paint in pink ----------- */
+const HL='#ff2e6a';
+const proxy = new Proxy(octx,{
+  get(o,k){
+    const v=o[k];
+    if(typeof v!=='function') return v;
+    return function(...a){
+      const lit = hoverLine!==null && curLine===hoverLine && /^(fill|stroke)/.test(k);
+      if(!lit) return v.apply(o,a);
+      const f=o.fillStyle, s=o.strokeStyle, g=o.globalAlpha;
+      o.fillStyle=HL; o.strokeStyle=HL; o.globalAlpha=1;
+      const r=v.apply(o,a);
+      o.fillStyle=f; o.strokeStyle=s; o.globalAlpha=g;
+      return r;
+    };
+  },
+  set(o,k,val){ o[k]=val; return true; }
+});
+
+/* --------------------------------------------------------------- rendering */
+function compile(){
+  try{
+    compiled=new Function('ctx','random','lerp','t','__L',...Object.keys(LIB),instrument(src));
+    errEl.classList.remove('on');
+  }catch(e){
+    compiled=null; errEl.textContent=e.message; errEl.classList.add('on');
+  }
+}
+
+function draw(now){
+  const t=(now-t0)/1000;
+  if(dirty||demo.animated){
+    if(dirty){ compile(); dirty=false; }
+    if(compiled){
+      octx.setTransform(1,0,0,1,0,0);
+      octx.clearRect(0,0,640,640);
+      octx.globalAlpha=1; octx.lineJoin='round'; octx.lineCap='round';
+      curLine=0;
+      try{
+        compiled(proxy, seededRandom(seed), lerp, t, n=>{curLine=n;}, ...Object.values(LIB));
+        /* only show a frame that finished — a half-typed edit keeps the last good one */
+        vis.setTransform(1,0,0,1,0,0);
+        vis.clearRect(0,0,640,640);
+        vis.drawImage(off,0,0);
+        errEl.classList.remove('on');
+      }catch(e){
+        errEl.textContent=e.message; errEl.classList.add('on');
+      }
+    }
+  }
+  requestAnimationFrame(draw);
+}
+
+/* ------------------------------------------------------------- code panel */
+function paint(){
+  tokens=tokenize(src);
+  nums=[]; cols=[];
+  let html='';
+  tokens.forEach(tk=>{
+    if(tk.t==='num'){
+      nums.push({at:tk.at,len:tk.v.length,dec:decimalsOf(tk.v)});
+      html+=`<span class="num" data-i="${nums.length-1}">${esc(tk.v)}</span>`;
+    }
+    else if(tk.t==='str'){
+      const c=colourOf(tk.v);
+      if(c){
+        cols.push({at:tk.at,len:tk.v.length,quote:tk.v[0],hex:c});
+        html+=`<span class="str col" data-c="${cols.length-1}" style="--c:${c}"`
+            + ` title="click to change this colour">${esc(tk.v)}</span>`;
+      } else html+=`<span class="str">${esc(tk.v)}</span>`;
+    }
+    else if(tk.t==='id') html+=`<span class="${/^[A-Z]/.test(tk.v)?'':'fn'}">${esc(tk.v)}</span>`;
+    else if(tk.t==='ws'||tk.t==='p') html+=esc(tk.v);
+    else html+=`<span class="${tk.t}">${esc(tk.v)}</span>`;
+  });
+  hlEl.innerHTML=html;
+  lineCount=src.split('\n').length;
+  let g=''; for(let i=1;i<=lineCount;i++) g+=`<i${i===hoverLine?' class="on"':''}>${i}</i>`;
+  gutter.innerHTML=g;
+}
+
+function setSource(next,keepCaret){
+  const c=ta.selectionStart;
+  src=next; ta.value=next; paint(); dirty=true;
+  if(keepCaret){ ta.selectionStart=ta.selectionEnd=c; }
+}
+
+function load(key){
+  demoKey=key; demo=DEMOS[key];
+  src=demo.code; ta.value=src;
+  paint(); dirty=true; hoverLine=null;
+  reseedBtn.hidden=!demo.seeded;
+  document.querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.k===key)));
+  if(location.hash.slice(1)!==key) history.replaceState(null,'','#'+key);
+  syncScroll();
+}
+
+/* keep the three layers lined up */
+function syncScroll(){
+  hlEl.scrollTop=ta.scrollTop; hlEl.scrollLeft=ta.scrollLeft;
+  gutter.scrollTop=ta.scrollTop;
+  gutter.style.transform=`translateY(${-ta.scrollTop}px)`;
+}
+ta.addEventListener('scroll',syncScroll);
+ta.addEventListener('input',()=>{ src=ta.value; paint(); dirty=true; });
+
+/* tab key should indent, not leave the editor */
+ta.addEventListener('keydown',e=>{
+  if(e.key!=='Tab') return;
+  e.preventDefault();
+  const s=ta.selectionStart, t=ta.selectionEnd;
+  setSource(src.slice(0,s)+'    '+src.slice(t),false);
+  ta.selectionStart=ta.selectionEnd=s+4;
+});
+
+/* ---------------------------------------- hover a line, see what it drew */
+function lineAt(clientY){
+  const box=editor.getBoundingClientRect();
+  const cs=getComputedStyle(ta);
+  const padTop=parseFloat(cs.paddingTop);
+  const lh=parseFloat(cs.lineHeight);
+  const y=clientY-box.top-padTop+ta.scrollTop;
+  const n=Math.floor(y/lh)+1;
+  return (n>=1&&n<=lineCount)?n:null;
+}
+editor.addEventListener('mousemove',e=>{
+  if(!lensOn) return;
+  const n=lineAt(e.clientY);
+  if(n===hoverLine) return;
+  hoverLine=n; dirty=true; markLine();
+});
+editor.addEventListener('mouseleave',()=>{ if(hoverLine!==null){ hoverLine=null; dirty=true; markLine(); } });
+
+function markLine(){
+  gutter.querySelectorAll('i').forEach((el,i)=>el.classList.toggle('on',i+1===hoverLine));
+  if(hoverLine===null){ badge.classList.remove('on'); return; }
+  badge.textContent='line '+hoverLine+' drew this';
+  badge.classList.add('on');
+}
+
+lensBtn.addEventListener('click',()=>{
+  lensOn=!lensOn; lensBtn.setAttribute('aria-pressed',String(lensOn));
+  if(!lensOn && hoverLine!==null){ hoverLine=null; dirty=true; markLine(); }
+});
+
+/* ================= changing a number: click for a slider, or drag it =======
+   No modifier key. Numbers are the only thing in the highlight layer that
+   accepts clicks, so everything else still goes to the textarea.
+   ========================================================================= */
+const slider=document.getElementById('slider'), srange=document.getElementById('srange');
+const sval=document.getElementById('sval'), smin=document.getElementById('smin');
+const smax=document.getElementById('smax'), sclose=document.getElementById('sclose');
+const palette=document.getElementById('palette'), palNow=document.getElementById('palNow');
+const palHex=document.getElementById('palHex'), palPick=document.getElementById('palPick');
+const palGrid=document.getElementById('palGrid'), palMine=document.getElementById('palMine');
+const palMineLabel=document.getElementById('palMineLabel'), palClose=document.getElementById('palClose');
+let live=null;                       /* number being edited */
+let colLive=null;                    /* colour being edited */
+
+/* A palette worth having: neutrals, then each hue family light to dark.
+   The demo's own colours are in here on purpose, so a student can match
+   the sky to the mountains without eyedropping anything. */
+const SWATCHES=[
+ '#ffffff','#f4f4f5','#d4d4d8','#a1a1aa','#71717a','#52525b','#3f3f46','#27272a','#18181b','#000000',
+ '#fee2e2','#fca5a5','#f87171','#ef4444','#dc2626','#f5ceea','#ebb4cc','#f7c9f3','#ec4899','#be185d',
+ '#ffedd5','#fed7aa','#fdba74','#fb923c','#f97316','#ea580c','#fef08a','#ecff6a','#facc15','#eab308',
+ '#d9f99d','#a3e635','#4ade80','#22c55e','#16a34a','#99f6e4','#5eead4','#2dd4bf','#14b8a6','#0d9488',
+ '#dbeafe','#b4e0fe','#93c5fd','#60a5fa','#3b82f6','#2563eb','#d3f8ff','#39c6e8','#0891b2','#1d4ed8',
+ '#ede9fe','#ddd6fe','#c4b5fd','#a78bfa','#8b5cf6','#7c3aed','#f5d0fe','#d946ef','#a21caf','#6d28d9',
+ '#f4f1ea','#e7e5e4','#a8a29e','#78716c','#93aba8','#7d9a99','#63838a','#4b5563','#374151','#1f2937'
+];
+
+function writeValue(v){
+  if(!live) return;
+  const txt=fmtNum(Math.round(v/live.step)*live.step, live.dec);
+  setSource(src.slice(0,live.at)+txt+src.slice(live.at+live.len), false);
+  live.len=txt.length;
+  sval.textContent=txt;
+}
+/* The window has a FIXED width, worked out once when the slider opens, and
+   it slides along. It must never be recomputed from the current value —
+   doing that doubles it every time you touch an end, and a few seconds of
+   holding the handle takes you to 1e43. */
+function reframe(v){
+  v=Math.max(-NUM_LIMIT,Math.min(NUM_LIMIT,v));
+  live.min=Math.max(-NUM_LIMIT, v-live.span);
+  live.max=Math.min( NUM_LIMIT, v+live.span);
+  srange.min=live.min; srange.max=live.max; srange.value=v;
+  smin.textContent=fmtNum(live.min,live.dec); smax.textContent=fmtNum(live.max,live.dec);
+}
+function openSlider(el,x,y){
+  const n=nums[+el.dataset.i]; if(!n) return;
+  const v=parseFloat(src.substr(n.at,n.len));
+  if(!isFinite(v)) return;
+  const step=Math.pow(10,-n.dec);
+  const span=Math.min(NUM_LIMIT, Math.max(step*20, Math.abs(v)||step*20));
+  closePalette();
+  live={at:n.at,len:n.len,dec:n.dec,step,span,min:0,max:0};
+  srange.step=step; reframe(v); sval.textContent=fmtNum(v,n.dec);
+  slider.classList.add('on');
+  place(slider,x,y);
+}
+function closeSlider(){ slider.classList.remove('on'); live=null; }
+
+/* keep a popover on screen */
+function place(el,x,y){
+  const w=el.offsetWidth||300, h=el.offsetHeight||44;
+  el.style.left=Math.max(8,Math.min(innerWidth-w-8,x-w/2))+'px';
+  el.style.top=Math.max(8,Math.min(innerHeight-h-8,y+14))+'px';
+}
+
+srange.addEventListener('input',()=>{
+  if(!live) return;
+  const v=parseFloat(srange.value);
+  writeValue(v);
+  /* pushed against an end? slide the window along, same width */
+  if(v<=live.min+live.step || v>=live.max-live.step) reframe(v);
+});
+sclose.addEventListener('click',closeSlider);
+
+/* ============================ colour palette ============================= */
+const norm=h=>{
+  h=(h||'').trim().toLowerCase();
+  if(h && h[0]!=='#') h='#'+h;
+  if(/^#[0-9a-f]{3}$/.test(h)) h='#'+h[1]+h[1]+h[2]+h[2]+h[3]+h[3];
+  return /^#(?:[0-9a-f]{6}|[0-9a-f]{8})$/.test(h) ? h : null;
+};
+function swatchRow(host,list,current){
+  host.innerHTML=list.map(c=>
+    `<button type="button" style="background:${c}" data-h="${c}" title="${c}"`
+    + `${c.toLowerCase()===current?' aria-current="true"':''} aria-label="${c}"></button>`).join('');
+}
+function writeColour(hex){
+  if(!colLive) return;
+  const h=norm(hex); if(!h) return;
+  const q=colLive.quote;
+  setSource(src.slice(0,colLive.at)+q+h+q+src.slice(colLive.at+colLive.len), false);
+  colLive.len=h.length+2;
+  colLive.hex=h;
+  palNow.style.background=h;
+  palHex.value=h;
+  if(/^#[0-9a-f]{6}$/.test(h)) palPick.value=h;
+  palGrid.querySelectorAll('button').forEach(b=>
+    b.setAttribute('aria-current',String(b.dataset.h.toLowerCase()===h)));
+}
+function openPalette(el,x,y){
+  const c=cols[+el.dataset.c]; if(!c) return;
+  closeSlider();
+  colLive={at:c.at,len:c.len,quote:c.quote,hex:c.hex};
+  const cur=c.hex.toLowerCase();
+  palNow.style.background=c.hex;
+  palHex.value=c.hex;
+  if(/^#[0-9a-f]{6}$/i.test(c.hex)) palPick.value=c.hex.toLowerCase();
+  swatchRow(palGrid,SWATCHES,cur);
+  /* every other colour already used in this drawing */
+  const mine=[...new Set(cols.map(k=>k.hex.toLowerCase()))].filter(h=>h!==cur);
+  swatchRow(palMine,mine,cur);
+  palMine.hidden=palMineLabel.hidden=!mine.length;
+  palette.classList.add('on');
+  place(palette,x,y);
+}
+function closePalette(){ palette.classList.remove('on'); colLive=null; }
+
+palette.addEventListener('click',e=>{
+  const b=e.target.closest('.pal-grid button'); if(b) writeColour(b.dataset.h);
+});
+palPick.addEventListener('input',()=>writeColour(palPick.value));
+palHex.addEventListener('input',()=>{ if(norm(palHex.value)) writeColour(palHex.value); });
+palClose.addEventListener('click',closePalette);
+
+addEventListener('keydown',e=>{
+  if(e.key!=='Escape') return;
+  if(live){ closeSlider(); ta.focus(); }
+  else if(colLive){ closePalette(); ta.focus(); }
+});
+
+/* clicking a number opens the slider AND arms a direct drag — whichever
+   the person does next, it works */
+let drag=null;
+hlEl.addEventListener('pointerdown',e=>{
+  const swatch=e.target.closest('.col');
+  if(swatch){ e.preventDefault(); openPalette(swatch, e.clientX, swatch.getBoundingClientRect().bottom); return; }
+  const el=e.target.closest('.num'); if(!el) return;
+  e.preventDefault();
+  const n=nums[+el.dataset.i]; if(!n) return;
+  openSlider(el, e.clientX, el.getBoundingClientRect().bottom);
+  drag={x:e.clientX, val:parseFloat(src.substr(n.at,n.len)), moved:false};
+  el.classList.add('live');
+});
+addEventListener('pointermove',e=>{
+  if(!drag||!live) return;
+  if(!drag.moved && Math.abs(e.clientX-drag.x)<3) return;   /* a click, not a drag */
+  drag.moved=true;
+  const v=drag.val+(e.clientX-drag.x)*live.step*0.5;
+  writeValue(v);
+  if(v<live.min||v>live.max) reframe(v); else srange.value=v;
+});
+addEventListener('pointerup',()=>{ drag=null; });
+
+/* click anywhere else and any popover goes away */
+addEventListener('pointerdown',e=>{
+  if(!live && !colLive) return;
+  if(slider.contains(e.target) || palette.contains(e.target)) return;
+  if(e.target.closest && e.target.closest('.num,.col')) return;
+  closeSlider(); closePalette();
+}, true);
+
+/* ---------------------------------------------------------------- the rest */
+tabsEl.innerHTML=Object.entries(DEMOS).map(([k,d])=>
+  `<button class="tab" role="tab" data-k="${k}" aria-selected="false">${d.label}</button>`).join('');
+tabsEl.addEventListener('click',e=>{ const b=e.target.closest('.tab'); if(b) load(b.dataset.k); });
+document.getElementById('reset').addEventListener('click',()=>load(demoKey));
+reseedBtn.addEventListener('click',()=>{ seed=(seed*1103515245+12345)>>>0; dirty=true; });
+addEventListener('hashchange',()=>{ const k=location.hash.slice(1); if(DEMOS[k]) load(k); });
+
+load(DEMOS[location.hash.slice(1)]?location.hash.slice(1):'tree');
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

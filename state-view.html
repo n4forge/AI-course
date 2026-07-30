@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>See the values — code without the blindfold</title>
+<meta name="description" content="Code on the left, the value of every variable on the right, one column per loop iteration. Nothing hidden, nothing to simulate in your head.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0B0E14; --paper:#ECEFF4; --muted:#8792A6; --line:rgba(135,146,166,.18);
+  --amber:#FF6A1A; --cyan:#39C6E8;
+  --page:#fefefe; --code:#2b2f38; --kw:#8b3fc4; --num:#1350d4; --str:#c0392b; --com:#5f9e7d;
+  --val:#1350d4; --hl:#ff2e6a;
+  --fm:'IBM Plex Mono',ui-monospace,monospace;
+  --fs:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
+  --cs:13px; --clh:1.85;                     /* both panes share these exactly */
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--ink);color:var(--paper);font-family:var(--fs);
+  display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:4px}
+
+.top{flex:none;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:11px 18px;border-bottom:1px solid var(--line)}
+.brand{font-family:var(--fm);font-size:.74rem;letter-spacing:.16em;text-transform:uppercase;color:var(--amber)}
+.brand b{color:var(--paper);font-weight:500}
+.tabs{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.tab,.act{min-height:34px;padding:.35em .95em;border-radius:100px;border:1px solid var(--line);
+  background:transparent;color:var(--muted);font-family:var(--fm);font-size:.76rem;transition:.18s}
+.tab:hover,.act:hover{color:var(--paper);border-color:rgba(135,146,166,.5)}
+.tab[aria-selected="true"]{background:var(--paper);color:var(--ink);border-color:var(--paper);font-weight:500}
+.act{border-radius:8px}
+.act:hover{color:var(--amber);border-color:var(--amber)}
+
+.hint{flex:none;text-align:center;font-family:var(--fm);font-size:.72rem;color:var(--muted);
+  padding:8px 18px;border-bottom:1px solid var(--line)}
+.hint b{color:var(--cyan);font-weight:500}
+.hint span+span{margin-left:16px}
+
+.win{flex:1;min-height:0;margin:16px;background:var(--page);border-radius:8px;overflow:hidden;
+  box-shadow:0 20px 54px rgba(0,0,0,.6);display:grid;grid-template-columns:1fr 1fr;position:relative}
+.win::after{content:"";position:absolute;top:14px;bottom:14px;left:50%;
+  border-left:1px dashed rgba(0,0,0,.22)}
+
+/* ------------------------------------------------------------ code side */
+.codewrap{position:relative;overflow:hidden}
+.hl,#ta{position:absolute;inset:0;margin:0;border:0;
+  padding:22px 18px 60px 52px;
+  font-family:var(--fm);font-size:var(--cs);line-height:var(--clh);
+  white-space:pre;overflow:auto;tab-size:4}
+.hl{color:var(--code);pointer-events:none;z-index:2}
+#ta{background:transparent;color:transparent;caret-color:var(--num);resize:none;z-index:1;
+  outline:none;-webkit-text-fill-color:transparent}
+#ta::selection{background:rgba(19,80,212,.18);-webkit-text-fill-color:transparent}
+.gutter{position:absolute;left:0;top:0;bottom:0;width:42px;z-index:3;pointer-events:none;
+  font-family:var(--fm);font-size:calc(var(--cs) * .8);line-height:var(--clh);
+  padding:22px 9px 60px 0;text-align:right;color:#c3c8d0;overflow:hidden}
+.gutter i{display:block;font-style:normal}
+.kw{color:var(--kw)} .str{color:var(--str)} .com{color:var(--com)} .fn{color:#1350d4}
+.num{color:var(--num);font-weight:600}
+
+/* ------------------------------------------------------------ value side */
+.valwrap{position:relative;overflow:hidden}
+.vals{position:absolute;inset:0;overflow:auto;
+  padding:22px 22px 60px 22px;
+  font-family:var(--fm);font-size:var(--cs);line-height:var(--clh)}
+.vrow{display:flex;gap:0;white-space:pre;height:calc(var(--cs) * var(--clh))}
+.vname{color:#6b7280;text-align:right;padding-right:.6em;flex:none}
+.vcells{display:flex;flex:1;min-width:0}
+.vcell{flex:1 1 0;min-width:0;color:var(--val);font-weight:600;text-align:right;
+  padding-right:.9em;overflow:hidden;text-overflow:ellipsis;position:relative}
+.vcell+.vcell::before{content:"";position:absolute;left:-.45em;top:.1em;bottom:.1em;
+  border-left:1px solid rgba(0,0,0,.16)}
+.vcell.blank{color:transparent}
+.vone{color:var(--val);font-weight:600}
+.vrow.ret .vname{color:var(--kw)}
+
+.colhead{display:flex;font-family:var(--fm);font-size:calc(var(--cs) * .78);
+  color:#9aa1ac;border-bottom:1px solid rgba(0,0,0,.1);margin-bottom:2px;padding-bottom:2px}
+.colhead .vname{color:#9aa1ac}
+
+.warn{position:absolute;left:14px;right:14px;bottom:12px;z-index:6;
+  font-family:var(--fm);font-size:.72rem;padding:.6em .85em;border-radius:7px;
+  background:#c0392b;color:#fff;opacity:0;transition:opacity .2s;pointer-events:none}
+.warn.on{opacity:1}
+.warn.ok{background:#0d8a4f}
+
+@media(max-width:900px){
+  body{overflow:auto}
+  .win{grid-template-columns:1fr;height:auto;margin:10px}
+  .win::after{display:none}
+  .codewrap{height:52vh} .valwrap{height:44vh;border-top:1px dashed rgba(0,0,0,.2)}
+  .tabs{margin-left:0;width:100%}
+}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="brand">See the <b>values</b></div>
+  <div class="tabs" role="tablist" aria-label="Examples"></div>
+  <button class="act" id="reset">Reset</button>
+</div>
+
+<div class="hint">
+  <span>Every variable's value is on the <b>right</b>, on the line that set it</span>
+  <span>Inside a loop you get <b>one column per pass</b></span>
+  <span>Edit anything — it re-runs as you type</span>
+</div>
+
+<div class="win">
+  <div class="codewrap" id="codewrap">
+    <pre class="hl" id="hl" aria-hidden="true"></pre>
+    <textarea id="ta" spellcheck="false" autocomplete="off"
+              aria-label="Source code — edit it and the values update"></textarea>
+    <div class="gutter" id="gutter" aria-hidden="true"></div>
+  </div>
+  <div class="valwrap">
+    <div class="vals" id="vals"></div>
+    <div class="warn" id="warn"></div>
+  </div>
+</div>
+
+<script>
+/* ==========================================================================
+   "You have to play computer in your head. Why isn't the computer doing it?"
+
+   The code runs, and every value it produces is shown beside the line that
+   produced it. When a line runs more than once — inside a loop — its values
+   line up in columns, one per pass. A blank cell means that line did not run
+   on that pass, which is how you SEE which branch was taken.
+   ========================================================================== */
+
+const DEMOS = {
+
+search: { label:'Binary search', code:
+`function binarySearch (key, array) {
+
+    var low  = 0;
+    var high = array.length - 1;
+
+    while (1) {
+
+        var mid   = floor((low + high) / 2);
+        var value = array[mid];
+
+        if (value < key) {
+            low = mid + 1;
+        }
+        else if (value > key) {
+            high = mid - 1;
+        }
+        else {
+            return mid;
+        }
+    }
+}
+
+// Change 'd' and watch every column change.
+// Then try 'z' — something that is not in the array at all.
+
+binarySearch('d', ['a', 'b', 'c', 'd', 'e', 'f']);`
+},
+
+colebrook: { label:'Friction factor', code:
+`// Colebrook has no closed form, so you iterate.
+// This is the convergence table you draw by hand in the exam,
+// except you do not have to draw it.
+
+function frictionFactor (Re, roughness) {
+
+    var f = 0.02;
+
+    for (var pass = 0; pass < 5; pass++) {
+
+        var lhs   = 1 / sqrt(f);
+        var rhs   = -2 * log10(roughness / 3.7 + 2.51 / (Re * sqrt(f)));
+        var error = rhs - lhs;
+
+        f = f * pow(lhs / rhs, 2);
+    }
+
+    return f;
+}
+
+// Re = 100000, relative roughness = 0.0002 (drawn steel pipe)
+
+frictionFactor(100000, 0.0002);`
+},
+
+bisect: { label:'Pump operating point', code:
+`// Where does a pump meet its pipe? Head produced = head needed.
+// Squeeze the bracket until the two agree.
+
+function operatingPoint (lo, hi) {
+
+    for (var pass = 0; pass < 8; pass++) {
+
+        var Q     = (lo + hi) / 2;
+        var pump  = 52 - 0.0011 * Q * Q;
+        var pipe  = 12 + 0.0026 * Q * Q;
+        var gap   = pump - pipe;
+
+        if (gap > 0) {
+            lo = Q;
+        }
+        else {
+            hi = Q;
+        }
+    }
+
+    return (lo + hi) / 2;
+}
+
+// litres per minute — the answer is somewhere in this range
+
+operatingPoint(0, 200);`
+}
+};
+
+/* ---------------------------------------------------------------- tokenizer */
+const TOK=new RegExp([
+ '(\\/\\/[^\\n]*)',
+ '("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\')',
+ '((?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?)',
+ '\\b(var|let|const|function|if|else|for|while|return|new|true|false|null)\\b',
+ '([A-Za-z_$][\\w$]*)','(\\s+)','([\\s\\S])'].join('|'),'g');
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function highlight(src){
+  let out='',m; TOK.lastIndex=0;
+  while((m=TOK.exec(src))!==null){
+    if(m[1]) out+=`<span class="com">${esc(m[1])}</span>`;
+    else if(m[2]) out+=`<span class="str">${esc(m[2])}</span>`;
+    else if(m[3]) out+=`<span class="num">${esc(m[3])}</span>`;
+    else if(m[4]) out+=`<span class="kw">${esc(m[4])}</span>`;
+    else if(m[5]) out+=`<span class="${/^[A-Z]/.test(m[5])?'':'fn'}">${esc(m[5])}</span>`;
+    else out+=esc(m[6]||m[7]);
+  }
+  return out;
+}
+
+/* ==========================================================================
+   Instrumentation. Line-based on purpose: these demos are one statement per
+   line, and a line-based rewriter is something a student can actually read
+   and reason about. If the rewrite fails to compile we fall back and say so
+   rather than pretending.
+   ========================================================================== */
+const RE_VAR=/^\s*var\s+([A-Za-z_$][\w$]*)\s*=/;
+const RE_ASSIGN=/^\s*([A-Za-z_$][\w$]*)\s*=[^=]/;
+const RE_RETURN=/^\s*return\s+(.+);\s*$/;
+const RE_LOOP=/^\s*(?:while|for)\s*\(.*\)\s*\{\s*$/;
+const RE_FUNC=/^\s*function\s+[A-Za-z_$][\w$]*\s*\(([^)]*)\)\s*\{\s*$/;
+
+function instrument(src){
+  return src.split('\n').map((raw,i)=>{
+    const n=i+1, line=raw;
+    let m;
+    if((m=line.match(RE_FUNC))){
+      const params=m[1].split(',').map(s=>s.trim()).filter(Boolean);
+      return line + params.map(p=>` __V(${n},"${p}",${p});`).join('');
+    }
+    if(RE_LOOP.test(line)) return line+' __I();';
+    if((m=line.match(RE_RETURN))) return line.replace(RE_RETURN,
+      (s,expr)=>s.replace(expr,`__R(${n},(${expr}))`));
+    if((m=line.match(RE_VAR))||(m=line.match(RE_ASSIGN)))
+      return line + ` __V(${n},"${m[1]}",${m[1]});`;
+    return line;
+  }).join('\n');
+}
+
+/* ------------------------------------------------------------ value shapes */
+function show(v){
+  if(v===undefined) return 'undefined';
+  if(v===null) return 'null';
+  if(typeof v==='string') return "'"+v+"'";
+  if(typeof v==='number'){
+    if(Number.isInteger(v)) return String(v);
+    if(!isFinite(v)) return String(v);
+    return String(Math.round(v*1e6)/1e6);
+  }
+  if(Array.isArray(v)) return '['+v.map(show).join(',')+']';
+  if(typeof v==='object') return '{…}';
+  return String(v);
+}
+
+/* ==================================================================== run */
+const MAX_PASSES=40;
+function runTrace(src){
+  const rows=new Map();          /* "line|name" -> {line,name,cells:Map(col->text)} */
+  let col=0, maxCol=0, stopped=false;
+  const put=(line,name,col,text)=>{
+    const k=line+'|'+name;
+    if(!rows.has(k)) rows.set(k,{line,name,cells:new Map(),ret:name==='return'});
+    rows.get(k).cells.set(col,text);
+  };
+  const V=(line,name,value)=>put(line,name,col,show(value));
+  const I=()=>{ col++; if(col>MAX_PASSES){ stopped=true; throw {__stop:true}; }
+                maxCol=Math.max(maxCol,col); };
+  const R=(line,value)=>{ put(line,'return',col,show(value)); return value; };
+
+  /* a small library so the code reads like the formulas, not like JavaScript */
+  const lib={ floor:Math.floor, ceil:Math.ceil, round:Math.round, abs:Math.abs,
+              sqrt:Math.sqrt, pow:Math.pow, exp:Math.exp, log:Math.log,
+              log10:Math.log10, sin:Math.sin, cos:Math.cos, tan:Math.tan, PI:Math.PI };
+
+  let error=null;
+  try{
+    const body=instrument(src);
+    const f=new Function('__V','__I','__R',...Object.keys(lib), body);
+    f(V,I,R,...Object.values(lib));
+  }catch(e){
+    if(!(e&&e.__stop)) error=e.message||String(e);
+  }
+  return {rows:[...rows.values()],maxCol,stopped,error};
+}
+
+/* ================================================================= render */
+const ta=document.getElementById('ta'), hlEl=document.getElementById('hl');
+const gutter=document.getElementById('gutter'), valsEl=document.getElementById('vals');
+const warn=document.getElementById('warn'), tabsEl=document.querySelector('.tabs');
+const codewrap=document.getElementById('codewrap');
+let key='search', src='';
+
+function paint(){
+  hlEl.innerHTML=highlight(src);
+  const n=src.split('\n').length;
+  let g=''; for(let i=1;i<=n;i++) g+=`<i>${i}</i>`;
+  gutter.innerHTML=g;
+}
+
+function renderValues(){
+  const {rows,maxCol,stopped,error}=runTrace(src);
+  const lines=src.split('\n').length;
+  const byLine=new Map();
+  rows.forEach(r=>{ if(!byLine.has(r.line)) byLine.set(r.line,[]); byLine.get(r.line).push(r); });
+
+  /* how wide is the widest name, so the "=" columns line up like the talk */
+  let w=0; rows.forEach(r=>w=Math.max(w,r.name.length));
+  const pad=s=>s.padStart(w);
+
+  let html='';
+  if(maxCol>1){
+    html+=`<div class="colhead"><span class="vname" style="width:${w+3}ch">pass</span>`
+        + `<span class="vcells">`
+        + Array.from({length:maxCol},(_,i)=>`<span class="vcell">${i+1}</span>`).join('')
+        + `</span></div>`;
+  }
+  for(let ln=1;ln<=lines;ln++){
+    const here=byLine.get(ln);
+    if(!here){ html+='<div class="vrow"></div>'; continue; }
+    here.forEach((r,idx)=>{
+      const inLoop=[...r.cells.keys()].some(c=>c>0);
+      const label=`<span class="vname" style="width:${w+3}ch">${esc(pad(r.name))} =</span>`;
+      if(!inLoop || maxCol<1){
+        html+=`<div class="vrow${r.ret?' ret':''}">${label}`
+            + `<span class="vone">${esc(r.cells.get(0)??'')}</span></div>`;
+      } else {
+        let cells='';
+        for(let c=1;c<=maxCol;c++){
+          const t=r.cells.get(c);
+          cells+=`<span class="vcell${t===undefined?' blank':''}">${esc(t??'·')}</span>`;
+        }
+        html+=`<div class="vrow${r.ret?' ret':''}">${label}<span class="vcells">${cells}</span></div>`;
+      }
+      /* extra rows on the same line push everything down, so only the first
+         one sits on the line; the rest would break alignment. */
+      if(idx>0) html+='';
+    });
+  }
+  valsEl.innerHTML=html;
+
+  warn.className='warn';
+  if(error){ warn.textContent=error; warn.classList.add('on'); }
+  else if(stopped){
+    warn.textContent=`Still going after ${MAX_PASSES} passes — this loop never ends. `
+                   + `Look at low and high in the last column.`;
+    warn.classList.add('on');
+  }
+  syncScroll();
+}
+
+function syncScroll(){
+  hlEl.scrollTop=ta.scrollTop; hlEl.scrollLeft=ta.scrollLeft;
+  gutter.style.transform=`translateY(${-ta.scrollTop}px)`;
+  valsEl.scrollTop=ta.scrollTop;
+}
+ta.addEventListener('scroll',syncScroll);
+ta.addEventListener('input',()=>{ src=ta.value; paint(); renderValues(); });
+ta.addEventListener('keydown',e=>{
+  if(e.key!=='Tab') return;
+  e.preventDefault();
+  const s=ta.selectionStart;
+  src=src.slice(0,s)+'    '+src.slice(ta.selectionEnd);
+  ta.value=src; ta.selectionStart=ta.selectionEnd=s+4;
+  paint(); renderValues();
+});
+
+function load(k){
+  key=k; src=DEMOS[k].code; ta.value=src;
+  paint(); renderValues();
+  document.querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.k===k)));
+  if(location.hash.slice(1)!==k) history.replaceState(null,'','#'+k);
+}
+tabsEl.innerHTML=Object.entries(DEMOS).map(([k,d])=>
+  `<button class="tab" role="tab" data-k="${k}" aria-selected="false">${d.label}</button>`).join('');
+tabsEl.addEventListener('click',e=>{ const b=e.target.closest('.tab'); if(b) load(b.dataset.k); });
+document.getElementById('reset').addEventListener('click',()=>load(key));
+addEventListener('hashchange',()=>{ const k=location.hash.slice(1); if(DEMOS[k]) load(k); });
+
+load(DEMOS[location.hash.slice(1)]?location.hash.slice(1):'search');
+</script>
+</body>
+</html>
