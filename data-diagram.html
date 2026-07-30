@@ -683,7 +683,10 @@ function drawBeam(){
     g.setLineDash([]);
   }
 
-  hoverBoxes=metrics.map(m=>m.box);
+  /* one x axis for the whole thing, so point anywhere across it — over the
+     beam, over any band, the gaps between them. Scoping this to individual
+     plot boxes made the most natural place to point do nothing. */
+  hoverBoxes=[{x:pad,y:top,w:wpx,h:rh*bands}];
   if(cursor!==null && metrics.length){
     const xx=cursor*BEAM.L, i=at(xx);
     g.strokeStyle='rgba(255,106,26,.9)'; g.lineWidth=1;
@@ -694,9 +697,26 @@ function drawBeam(){
       +'M   '+b.M[i].toFixed(2).padStart(8)+' kNm\ndef '+(b.d[i]*1000).toFixed(2).padStart(8)+' mm',cursor);
   } else hideReadout();
 
-  /* what the step is doing, in words, with the real numbers */
+  /* the two places worth knowing, marked permanently once they exist */
   const Mmax=Math.max(...b.M.map(Math.abs)), dmax=Math.max(...b.d.map(Math.abs));
   const iM=b.M.indexOf(Math.max(...b.M)), iD=b.d.map(Math.abs).indexOf(dmax);
+  function peak(mm,i,colour,text){
+    if(!mm) return;
+    const cx=X(b.x[i]), cy=mm.m.Y(b[mm.key][i]*mm.scale);
+    g.strokeStyle=colour; g.lineWidth=1.5; g.setLineDash([3,3]);
+    g.beginPath(); g.moveTo(px(cx),cy); g.lineTo(px(cx),mm.box.y+mm.box.h); g.stroke();
+    g.setLineDash([]);
+    g.fillStyle=colour;
+    g.beginPath(); g.arc(cx,cy,5,0,6.2832); g.fill();
+    g.font='500 12px IBM Plex Mono, monospace'; g.textAlign='center';
+    g.fillText(text, Math.max(60,Math.min(W-70,cx)), cy-11); g.textAlign='left';
+  }
+  if(st.k==='defl'){
+    peak(metrics.find(m=>m.key==='M'), iM, '#c2410c',
+         Mmax.toFixed(1)+' kNm at x '+b.x[iM].toFixed(2)+' m');
+    peak(metrics.find(m=>m.key==='d'), iD, '#6d4bd0',
+         (dmax*1000).toFixed(1)+' mm at x '+b.x[iD].toFixed(2)+' m');
+  }
   let cap='', extra=null;
   if(st.k==='beam')   cap='the beam and its loads. nothing else is known yet.';
   if(st.k==='react')  cap='reactions first: moments about the left support give '
