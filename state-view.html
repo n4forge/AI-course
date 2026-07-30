@@ -77,6 +77,8 @@ button{font:inherit;cursor:pointer}
   border-left:1px solid rgba(0,0,0,.16)}
 .vcell.blank{color:transparent}
 .vone{color:var(--val);font-weight:600}
+.vjoin{color:var(--val);font-weight:600}
+.vals.stale{opacity:.4}          /* mid-keystroke: last good values, dimmed */
 .vrow.ret .vname{color:var(--kw)}
 
 .colhead{display:flex;font-family:var(--fm);font-size:calc(var(--cs) * .78);
@@ -309,7 +311,18 @@ function runTrace(src){
 
   let error=null;
   try{
-    const body=instrument(src);
+    let body=instrument(src);
+    /* If you have written a function but not called it yet, call it with no
+       arguments so its parameters show up as undefined straight away. That
+       is what makes values appear WHILE you type, instead of only once the
+       whole thing is finished. */
+    const defs=[...src.matchAll(/^\s*function\s+([A-Za-z_$][\w$]*)\s*\(/gm)].map(m=>m[1]);
+    const anyCalled=defs.some(n=>{
+      const withoutDefs=src.replace(new RegExp('function\\s+'+n+'\\s*\\(','g'),'');
+      return new RegExp('(^|[^\\w.$])'+n+'\\s*\\(').test(withoutDefs);
+    });
+    if(defs.length && !anyCalled) body+=`\n;try{ ${defs[defs.length-1]}(); }catch(e){}`;
+
     const f=new Function('__V','__I','__R',...Object.keys(lib), body);
     f(V,I,R,...Object.values(lib));
   }catch(e){
@@ -332,8 +345,17 @@ function paint(){
   gutter.innerHTML=g;
 }
 
+let lastGood=null;
 function renderValues(){
-  const {rows,maxCol,stopped,error}=runTrace(src);
+  let trace=runTrace(src);
+  /* Half-typed code is a syntax error for a second or two. Blanking the whole
+     pane every keystroke makes it feel broken, so hold the last good values
+     and mark them stale instead. */
+  const stale = !!trace.error && !!lastGood;
+  if(stale) trace={...lastGood, error:trace.error};
+  else if(!trace.error) lastGood=trace;
+  const {rows,maxCol,stopped,error}=trace;
+  valsEl.classList.toggle('stale',stale);
   const lines=src.split('\n').length;
   const byLine=new Map();
   rows.forEach(r=>{ if(!byLine.has(r.line)) byLine.set(r.line,[]); byLine.get(r.line).push(r); });
@@ -349,27 +371,37 @@ function renderValues(){
         + Array.from({length:maxCol},(_,i)=>`<span class="vcell">${i+1}</span>`).join('')
         + `</span></div>`;
   }
+  /* EXACTLY one row per code line. Emitting two rows for one line (a function
+     with two parameters, say) pushes every row below it down and the whole
+     pane stops lining up with the code. So several values on one line share
+     one row. */
   for(let ln=1;ln<=lines;ln++){
     const here=byLine.get(ln);
     if(!here){ html+='<div class="vrow"></div>'; continue; }
-    here.forEach((r,idx)=>{
-      const inLoop=[...r.cells.keys()].some(c=>c>0);
-      const label=`<span class="vname" style="width:${w+3}ch">${esc(pad(r.name))} =</span>`;
-      if(!inLoop || maxCol<1){
-        html+=`<div class="vrow${r.ret?' ret':''}">${label}`
-            + `<span class="vone">${esc(r.cells.get(0)??'')}</span></div>`;
-      } else {
-        let cells='';
-        for(let c=1;c<=maxCol;c++){
-          const t=r.cells.get(c);
-          cells+=`<span class="vcell${t===undefined?' blank':''}">${esc(t??'·')}</span>`;
-        }
-        html+=`<div class="vrow${r.ret?' ret':''}">${label}<span class="vcells">${cells}</span></div>`;
+
+    if(here.length>1){
+      const joined=here.map(r=>{
+        const v=r.cells.get(0) ?? [...r.cells.values()].pop() ?? '';
+        return r.name+' = '+v;
+      }).join('    ');
+      html+=`<div class="vrow"><span class="vjoin">${esc(joined)}</span></div>`;
+      continue;
+    }
+
+    const r=here[0];
+    const inLoop=[...r.cells.keys()].some(c=>c>0);
+    const label=`<span class="vname" style="width:${w+3}ch">${esc(pad(r.name))} =</span>`;
+    if(!inLoop){
+      html+=`<div class="vrow${r.ret?' ret':''}">${label}`
+          + `<span class="vone">${esc(r.cells.get(0)??'')}</span></div>`;
+    } else {
+      let cells='';
+      for(let c=1;c<=maxCol;c++){
+        const t=r.cells.get(c);
+        cells+=`<span class="vcell${t===undefined?' blank':''}">${esc(t??'·')}</span>`;
       }
-      /* extra rows on the same line push everything down, so only the first
-         one sits on the line; the rest would break alignment. */
-      if(idx>0) html+='';
-    });
+      html+=`<div class="vrow${r.ret?' ret':''}">${label}<span class="vcells">${cells}</span></div>`;
+    }
   }
   valsEl.innerHTML=html;
 
