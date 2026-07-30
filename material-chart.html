@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What should it be made of?</title>
+<meta name="description" content="Every engineering material as a dot. Drag a line across them and watch the winners change depending on what you are building.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0B0E14; --paper:#ECEFF4; --muted:#8792A6; --line:rgba(135,146,166,.18);
+  --amber:#FF6A1A; --cyan:#39C6E8;
+  --metal:#3b82f6; --poly:#e0724a; --ceram:#8b5cf6; --comp:#0d9488;
+  --natural:#4d8c34; --foam:#c2418a;
+  --fm:'IBM Plex Mono',ui-monospace,monospace;
+  --fs:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--ink);color:var(--paper);font-family:var(--fs);
+  display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:4px}
+
+.top{flex:none;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:11px 18px;border-bottom:1px solid var(--line)}
+.brand{font-family:var(--fm);font-size:.74rem;letter-spacing:.16em;text-transform:uppercase;color:var(--amber)}
+.brand b{color:var(--paper);font-weight:500}
+.jobs{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.job,.act{min-height:34px;padding:.35em .9em;border-radius:100px;border:1px solid var(--line);
+  background:transparent;color:var(--muted);font-family:var(--fm);font-size:.74rem;transition:.18s}
+.job:hover,.act:hover{color:var(--paper);border-color:rgba(135,146,166,.5)}
+.job[aria-pressed="true"]{background:var(--paper);color:var(--ink);border-color:var(--paper);font-weight:500}
+.act{border-radius:8px}
+.act[aria-pressed="true"]{background:var(--amber);border-color:var(--amber);color:#160a02}
+
+.ask{flex:none;text-align:center;padding:9px 18px;border-bottom:1px solid var(--line);
+  font-size:.86rem;color:var(--muted)}
+.ask b{color:var(--paper);font-weight:600}
+
+.wrap{flex:1;min-height:0;display:grid;grid-template-columns:1fr 300px;gap:14px;padding:14px}
+.sheet{background:#fff;border-radius:8px;position:relative;overflow:hidden;
+  box-shadow:0 18px 46px rgba(0,0,0,.55)}
+canvas{display:block;width:100%;height:100%}
+.side{display:flex;flex-direction:column;gap:10px;min-height:0}
+.card{background:#11161f;border:1px solid var(--line);border-radius:10px;padding:12px 13px}
+.card h3{font-family:var(--fm);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--cyan);font-weight:500;margin-bottom:8px}
+.card p{font-size:.8rem;color:var(--muted);line-height:1.5}
+.rank{flex:1;min-height:0;overflow:auto}
+.rank ol{list-style:none;counter-reset:r}
+.rank li{counter-increment:r;display:flex;align-items:baseline;gap:8px;padding:5px 0;
+  border-bottom:1px solid rgba(135,146,166,.1);font-size:.8rem}
+.rank li::before{content:counter(r);font-family:var(--fm);font-size:.66rem;color:var(--muted);
+  min-width:1.4em;text-align:right}
+.rank .nm{flex:1;color:var(--paper)}
+.rank .sc{font-family:var(--fm);font-size:.72rem;color:var(--amber);font-variant-numeric:tabular-nums}
+.rank .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.legend{display:flex;flex-wrap:wrap;gap:8px}
+.legend button{display:flex;align-items:center;gap:5px;background:none;border:0;
+  font-family:var(--fm);font-size:.68rem;color:var(--muted);padding:2px 0}
+.legend button[aria-pressed="false"]{opacity:.35;text-decoration:line-through}
+.legend i{width:9px;height:9px;border-radius:50%;display:block}
+
+.tip{position:absolute;z-index:9;pointer-events:none;background:rgba(11,14,20,.95);color:var(--paper);
+  border:1px solid rgba(57,198,232,.45);border-radius:8px;padding:8px 10px;font-family:var(--fm);
+  font-size:.7rem;line-height:1.6;white-space:pre;opacity:0;transition:opacity .1s}
+.tip.on{opacity:1}
+
+@media(max-width:960px){ body{overflow:auto} .wrap{grid-template-columns:1fr;padding:8px}
+  .sheet{height:60vh} .jobs{margin-left:0;width:100%} }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="brand">What should it be <b>made of?</b></div>
+  <div class="jobs" role="group" aria-label="What are you building"></div>
+  <button class="act" id="costBtn" aria-pressed="false">Count the cost</button>
+</div>
+
+<div class="ask" id="ask"></div>
+
+<div class="wrap">
+  <div class="sheet" id="sheet"><canvas id="cv"></canvas><div class="tip" id="tip"></div></div>
+  <div class="side">
+    <div class="card">
+      <h3>Drag the line</h3>
+      <p id="explain"></p>
+    </div>
+    <div class="card rank"><h3 id="rankHead">Best first</h3><ol id="rankList"></ol></div>
+    <div class="card"><h3>Families</h3><div class="legend" id="legend"></div></div>
+  </div>
+</div>
+
+<script>
+/* ==========================================================================
+   There is no best material. There is only the best material FOR SOMETHING.
+
+   Every dot is a real material with real measured numbers. The line you drag
+   is not decoration — its slope encodes what you are building and how it is
+   loaded. Change the slope and the winners change completely, which is the
+   whole point and is very hard to believe until you watch it happen.
+   ========================================================================== */
+
+/* name, family, density kg/m3, stiffness E GPa, strength MPa, price $/kg
+   Representative mid-range values for common engineering materials. */
+const M=[
+['Steel, mild','metal',7850,210,250,0.8],
+['Steel, high strength','metal',7850,210,700,1.1],
+['Steel, spring','metal',7850,207,1200,2.0],
+['Stainless 304','metal',8000,193,215,4.0],
+['Stainless 316','metal',8000,193,240,5.2],
+['Cast iron, grey','metal',7150,100,200,0.7],
+['Cast iron, ductile','metal',7100,165,350,0.9],
+['Aluminium 6061','metal',2700,69,275,2.6],
+['Aluminium 7075','metal',2810,71,505,4.2],
+['Aluminium 2024','metal',2780,73,345,3.6],
+['Aluminium, cast','metal',2680,72,165,2.1],
+['Magnesium AZ31','metal',1770,45,200,4.0],
+['Magnesium AZ91','metal',1810,45,160,3.6],
+['Titanium Ti-6Al-4V','metal',4430,114,880,30],
+['Titanium, pure','metal',4510,105,275,20],
+['Copper','metal',8960,120,70,7.5],
+['Brass','metal',8500,100,200,6.0],
+['Bronze','metal',8800,110,200,7.0],
+['Inconel 718','metal',8190,200,1030,40],
+['Zinc alloy','metal',6600,90,220,3.0],
+['Lead','metal',11340,14,12,2.5],
+['Tungsten','metal',19300,411,550,45],
+['Molybdenum','metal',10200,320,500,40],
+['Beryllium','metal',1850,287,240,400],
+['Nickel','metal',8900,200,150,15],
+
+['ABS','polymer',1050,2.3,40,3.0],
+['Polypropylene','polymer',905,1.5,33,1.5],
+['HDPE','polymer',955,1.0,27,1.3],
+['LDPE','polymer',920,0.25,10,1.4],
+['PVC, rigid','polymer',1400,3.0,50,1.6],
+['Polystyrene','polymer',1050,3.2,45,1.8],
+['Acrylic PMMA','polymer',1190,3.0,70,3.0],
+['Polycarbonate','polymer',1200,2.3,65,4.2],
+['Nylon 6,6','polymer',1140,2.8,80,4.0],
+['Acetal POM','polymer',1410,3.0,70,4.0],
+['PET','polymer',1350,3.0,55,2.0],
+['PTFE','polymer',2180,0.5,25,15],
+['PEEK','polymer',1300,3.8,100,90],
+['Epoxy','polymer',1250,3.0,60,6.0],
+['Rubber, natural','polymer',950,0.002,20,2.0],
+['Silicone','polymer',1200,0.01,10,8.0],
+['Neoprene','polymer',1250,0.003,15,4.0],
+['Polyurethane','polymer',1200,0.03,30,5.0],
+
+['Alumina','ceramic',3900,380,350,20],
+['Silicon carbide','ceramic',3200,410,400,40],
+['Silicon nitride','ceramic',3200,310,700,60],
+['Zirconia','ceramic',5700,200,900,60],
+['Tungsten carbide','ceramic',15000,600,1500,60],
+['Boron carbide','ceramic',2500,450,350,100],
+['Glass, soda-lime','ceramic',2500,70,50,1.5],
+['Glass, borosilicate','ceramic',2230,64,60,4.0],
+['Concrete','ceramic',2400,30,5,0.10],
+['Brick','ceramic',2000,20,10,0.30],
+['Granite','ceramic',2700,60,20,3.0],
+
+['CFRP, unidirectional','composite',1550,135,1500,60],
+['CFRP, quasi-isotropic','composite',1550,55,500,60],
+['GFRP, glass fibre','composite',1900,25,300,12],
+['Kevlar composite','composite',1380,76,1300,40],
+['Plywood','composite',700,10,30,1.0],
+['MDF','composite',750,3.5,20,0.8],
+['Carbon-carbon','composite',1800,90,200,200],
+
+['Oak, along grain','natural',700,12,60,2.0],
+['Pine, along grain','natural',500,10,45,1.0],
+['Balsa, along grain','natural',160,4.0,20,5.0],
+['Bamboo','natural',700,18,160,1.0],
+['Cork','natural',200,0.03,1.5,8.0],
+['Bone, cortical','natural',1900,18,130,0],
+['Leather','natural',900,0.3,30,20],
+
+['Foam, rigid polymer','foam',100,0.05,1.2,8.0],
+['Foam, flexible polymer','foam',50,0.003,0.3,6.0],
+['Foam, aluminium','foam',400,2.0,5,30],
+['Expanded polystyrene','foam',30,0.01,0.3,3.0],
+].map(r=>({name:r[0],fam:r[1],rho:r[2],E:r[3],sig:r[4],cost:r[5]}));
+
+const FAM={metal:'#3b82f6',polymer:'#e0724a',ceramic:'#8b5cf6',
+           composite:'#0d9488',natural:'#4d8c34',foam:'#c2418a'};
+const FAMNAME={metal:'metals',polymer:'plastics',ceramic:'ceramics & glass',
+               composite:'composites',natural:'natural',foam:'foams'};
+
+/* ==========================================================================
+   The jobs. The exponent is not arbitrary — it falls out of the mechanics of
+   how each shape carries its load. On log-log axes it is simply the slope of
+   the line you drag.
+   ========================================================================== */
+const JOBS=[
+ {id:'tie-stiff', label:'A rod being pulled',  axis:'E',   n:1,
+  index:'E / ρ',
+  why:'Pulled straight along its length, and it must not stretch. Stiffness per kilo, plain and simple.',
+  ask:'What should a <b>tie rod</b> be made of, if it must be stiff and light?'},
+ {id:'beam-stiff',label:'A beam being bent',   axis:'E',   n:2,
+  index:'√E / ρ',
+  why:'Bending is different. A deeper beam is far stiffer, so a light material can be made thicker for free. That changes the answer completely.',
+  ask:'What should a <b>beam</b> be made of, if it must be stiff and light?'},
+ {id:'panel-stiff',label:'A flat panel',       axis:'E',   n:3,
+  index:'E⅓ / ρ',
+  why:'A panel can be made thicker still for the same weight, so lightness matters even more than in a beam.',
+  ask:'What should a <b>flat panel</b> be made of, if it must be stiff and light?'},
+ {id:'tie-strong',label:'A rod that must not snap', axis:'sig', n:1,
+  index:'σ / ρ',
+  why:'Now you care about breaking, not bending. Strength per kilo.',
+  ask:'What should a <b>tie rod</b> be made of, if it must be strong and light?'},
+ {id:'beam-strong',label:'A beam that must not snap', axis:'sig', n:1.5,
+  index:'σ^⅔ / ρ',
+  why:'Strength-limited bending. Again the shape lets a light material fight above its weight.',
+  ask:'What should a <b>beam</b> be made of, if it must be strong and light?'},
+ {id:'spring',     label:'A spring',            axis:'sig', n:0.5,
+  index:'σ² / Eρ',
+  why:'A spring must store energy and spring back. It wants to be strong but NOT stiff, which is why the answer surprises people.',
+  ask:'What should a <b>spring</b> be made of?'},
+];
+
+/* ============================== the chart =============================== */
+const cv=document.getElementById('cv'), g=cv.getContext('2d');
+const sheet=document.getElementById('sheet'), tip=document.getElementById('tip');
+let W=0,H=0,job=JOBS[1],offset=0,useCost=false,hidden=new Set(),hover=null;
+const PAD={l:78,r:26,t:26,b:58};
+
+function yVal(m){ return job.axis==='E'? m.E : m.sig; }
+function xVal(m){ return m.rho/1000; }                    /* Mg/m3, the usual units */
+
+/* the performance number for this job. Bigger is better. */
+function score(m){
+  const rho=m.rho/1000;
+  let s;
+  if(job.id==='spring') s=(m.sig*m.sig)/(m.E*1000*rho);   /* sigma^2 / E rho */
+  else s=Math.pow(yVal(m),1/job.n)/rho;
+  if(useCost) s/= Math.max(0.05,m.cost);
+  return s;
+}
+const live=()=>M.filter(m=>!hidden.has(m.fam) && yVal(m)>0 && (!useCost||m.cost>0));
+
+function bounds(){
+  const xs=live().map(xVal), ys=live().map(yVal);
+  return {x0:Math.log10(Math.min(...xs))-0.15, x1:Math.log10(Math.max(...xs))+0.15,
+          y0:Math.log10(Math.min(...ys))-0.25, y1:Math.log10(Math.max(...ys))+0.25};
+}
+let B=null;
+const PX=v=>PAD.l+(Math.log10(v)-B.x0)/(B.x1-B.x0)*(W-PAD.l-PAD.r);
+const PY=v=>H-PAD.b-(Math.log10(v)-B.y0)/(B.y1-B.y0)*(H-PAD.t-PAD.b);
+
+function resize(){
+  const d=Math.min(2,devicePixelRatio||1);
+  W=sheet.clientWidth; H=sheet.clientHeight;
+  cv.width=Math.round(W*d); cv.height=Math.round(H*d);
+  g.setTransform(d,0,0,d,0,0); draw();
+}
+addEventListener('resize',resize);
+
+/* the selection line, as a value of log10(y) at the left edge */
+function lineY(x){ return Math.pow(10, offset + job.n*(Math.log10(x)-B.x0) ); }
+function passes(m){ return yVal(m) >= lineY(xVal(m)); }
+
+function draw(){
+  B=bounds();
+  g.fillStyle='#fff'; g.fillRect(0,0,W,H);
+
+  /* grid on decades */
+  g.font='11px IBM Plex Mono, monospace'; g.textBaseline='middle';
+  for(let e=Math.ceil(B.x0);e<=Math.floor(B.x1);e++){
+    const x=PX(Math.pow(10,e));
+    g.strokeStyle='#eef0f2'; g.lineWidth=1;
+    g.beginPath(); g.moveTo(x,PAD.t); g.lineTo(x,H-PAD.b); g.stroke();
+    g.fillStyle='#8b94a0'; g.textAlign='center';
+    g.fillText(fmt(Math.pow(10,e)), x, H-PAD.b+16);
+  }
+  for(let e=Math.ceil(B.y0);e<=Math.floor(B.y1);e++){
+    const y=PY(Math.pow(10,e));
+    g.strokeStyle='#eef0f2'; g.lineWidth=1;
+    g.beginPath(); g.moveTo(PAD.l,y); g.lineTo(W-PAD.r,y); g.stroke();
+    g.fillStyle='#8b94a0'; g.textAlign='right';
+    g.fillText(fmt(Math.pow(10,e)), PAD.l-9, y);
+  }
+  g.fillStyle='#3b4250'; g.font='500 12px IBM Plex Sans, sans-serif'; g.textAlign='center';
+  g.fillText('how heavy  —  density, tonnes per cubic metre', (PAD.l+W-PAD.r)/2, H-16);
+  g.save(); g.translate(20,(PAD.t+H-PAD.b)/2); g.rotate(-Math.PI/2);
+  g.fillText(job.axis==='E'? 'how stiff  —  GPa' : 'how strong  —  MPa',0,0); g.restore();
+
+  /* everything under the line is out */
+  const pts=[];
+  for(let i=0;i<=60;i++){
+    const lx=B.x0+(B.x1-B.x0)*i/60, x=Math.pow(10,lx);
+    pts.push([PX(x),PY(lineY(x))]);
+  }
+  g.save();
+  g.beginPath(); g.moveTo(pts[0][0],pts[0][1]);
+  pts.forEach(p=>g.lineTo(p[0],p[1]));
+  g.lineTo(W-PAD.r,H-PAD.b); g.lineTo(PAD.l,H-PAD.b); g.closePath();
+  g.fillStyle='rgba(140,150,165,.12)'; g.fill();
+  g.restore();
+  g.beginPath(); pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]));
+  g.strokeStyle='#ff6a1a'; g.lineWidth=2.5; g.stroke();
+  g.fillStyle='#ff6a1a'; g.font='500 12px IBM Plex Mono, monospace'; g.textAlign='left';
+  g.fillText('drag me  ↕', PAD.l+10, PY(lineY(Math.pow(10,B.x0)))-12);
+
+  /* the materials */
+  live().forEach(m=>{
+    const x=PX(xVal(m)), y=PY(yVal(m)), ok=passes(m);
+    g.beginPath(); g.arc(x,y,ok?7:5,0,6.2832);
+    g.fillStyle=ok? FAM[m.fam] : '#d6d9dd';
+    g.globalAlpha=ok?1:.75; g.fill(); g.globalAlpha=1;
+    if(ok){ g.strokeStyle='#fff'; g.lineWidth=1.5; g.stroke(); }
+  });
+  /* name the survivors, biggest first, without letting labels collide */
+  const used=[];
+  live().filter(passes).sort((a,b)=>score(b)-score(a)).slice(0,10).forEach(m=>{
+    const x=PX(xVal(m)), y=PY(yVal(m));
+    if(used.some(u=>Math.abs(u[0]-x)<64&&Math.abs(u[1]-y)<15)) return;
+    used.push([x,y]);
+    g.fillStyle='#2b313a'; g.font='500 11px IBM Plex Sans, sans-serif'; g.textAlign='left';
+    g.fillText(m.name, x+11, y+4);
+  });
+
+  if(hover){
+    const x=PX(xVal(hover)), y=PY(yVal(hover));
+    g.beginPath(); g.arc(x,y,11,0,6.2832);
+    g.strokeStyle=FAM[hover.fam]; g.lineWidth=2.5; g.stroke();
+  }
+  renderSide();
+}
+function fmt(v){
+  if(v>=1000) return (v/1000)+'k';
+  if(v>=1) return String(v);
+  return String(v);
+}
+
+function renderSide(){
+  const win=live().filter(passes).sort((a,b)=>score(b)-score(a));
+  document.getElementById('rankHead').textContent =
+    win.length+' of '+live().length+' materials pass';
+  document.getElementById('rankList').innerHTML = win.slice(0,14).map(m=>
+    '<li><span class="dot" style="background:'+FAM[m.fam]+'"></span>'
+    +'<span class="nm">'+m.name+'</span>'
+    +'<span class="sc">'+score(m).toPrecision(3)+'</span></li>').join('')
+    || '<li style="color:#8792A6">nothing passes — drag the line down</li>';
+  document.getElementById('explain').innerHTML =
+    job.why+'<br><br><b style="color:#ECEFF4">Score = '+job.index
+    +(useCost?' &divide; price':'')+'</b><br>Bigger is better. Everything above the line passes.';
+  document.getElementById('ask').innerHTML=job.ask
+    +(useCost?'  <b style="color:#FF6A1A">— and now per rupee spent</b>':'');
+}
+
+/* ============================== interaction ============================= */
+let dragging=false;
+function toLog(e){
+  const r=sheet.getBoundingClientRect();
+  return {mx:(e.clientX-r.left)*(W/r.width), my:(e.clientY-r.top)*(H/r.height)};
+}
+sheet.addEventListener('pointerdown',e=>{
+  const {mx,my}=toLog(e);
+  const onLine=Math.abs(my-PY(lineY(invX(mx))))<26;
+  if(onLine){ dragging=true; sheet.setPointerCapture(e.pointerId); }
+});
+function invX(mx){
+  const f=(mx-PAD.l)/(W-PAD.l-PAD.r);
+  return Math.pow(10, B.x0+f*(B.x1-B.x0));
+}
+function invY(my){
+  const f=(H-PAD.b-my)/(H-PAD.t-PAD.b);
+  return B.y0+f*(B.y1-B.y0);
+}
+sheet.addEventListener('pointermove',e=>{
+  const {mx,my}=toLog(e);
+  if(dragging){
+    offset = invY(my) - job.n*(Math.log10(invX(mx))-B.x0);
+    draw(); return;
+  }
+  let best=null,bd=15;
+  live().forEach(m=>{
+    const d=Math.hypot(mx-PX(xVal(m)),my-PY(yVal(m)));
+    if(d<bd){bd=d;best=m;}
+  });
+  if(best!==hover){ hover=best; draw(); }
+  if(best){
+    tip.textContent=best.name+'\n'
+      +'weighs   '+(best.rho/1000).toFixed(2)+' t/m³\n'
+      +'stiffness '+best.E+' GPa\n'
+      +'strength  '+best.sig+' MPa\n'
+      +(best.cost?'price     $'+best.cost+'/kg\n':'')
+      +'score     '+score(best).toPrecision(3);
+    tip.classList.add('on');
+    const r=sheet.getBoundingClientRect();
+    tip.style.left=Math.min(r.width-190,PX(xVal(best))*(r.width/W)+16)+'px';
+    tip.style.top=Math.max(6,PY(yVal(best))*(r.height/H)-70)+'px';
+  } else tip.classList.remove('on');
+});
+['pointerup','pointercancel'].forEach(ev=>sheet.addEventListener(ev,()=>dragging=false));
+sheet.addEventListener('pointerleave',()=>{ tip.classList.remove('on'); hover=null; draw(); });
+
+/* start the line so a sensible handful survives */
+function reframe(){
+  B=bounds();
+  const s=live().map(m=>Math.log10(yVal(m))-job.n*(Math.log10(xVal(m))-B.x0)).sort((a,b)=>b-a);
+  offset = s[Math.min(s.length-1, 7)] - 0.05;   /* about eight winners to start */
+  draw();
+}
+
+const jobsEl=document.querySelector('.jobs');
+jobsEl.innerHTML=JOBS.map(j=>
+  '<button class="job" data-id="'+j.id+'" aria-pressed="'+(j===job)+'">'+j.label+'</button>').join('');
+jobsEl.addEventListener('click',e=>{
+  const b=e.target.closest('.job'); if(!b) return;
+  job=JOBS.find(j=>j.id===b.dataset.id);
+  document.querySelectorAll('.job').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  reframe();
+});
+document.getElementById('costBtn').addEventListener('click',e=>{
+  useCost=!useCost; e.currentTarget.setAttribute('aria-pressed',String(useCost)); draw();
+});
+const legend=document.getElementById('legend');
+legend.innerHTML=Object.keys(FAM).map(f=>
+  '<button data-f="'+f+'" aria-pressed="true"><i style="background:'+FAM[f]+'"></i>'
+  +FAMNAME[f]+'</button>').join('');
+legend.addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  const f=b.dataset.f;
+  if(hidden.has(f)) hidden.delete(f); else hidden.add(f);
+  b.setAttribute('aria-pressed',String(!hidden.has(f)));
+  reframe();
+});
+
+resize(); reframe();
+</script>
+</body>
+</html>
