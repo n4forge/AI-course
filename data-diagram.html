@@ -177,7 +177,10 @@ function plot(box, series, opts){
     g.beginPath();
     for(let i=0;i<n;i++){ const yy=Y(s.data[i]); i?g.lineTo(X(i),yy):g.moveTo(X(i),yy); }
     g.strokeStyle=s.colour; g.lineWidth=s.width||1.7;
-    g.lineJoin='round'; g.lineCap='round'; g.stroke();
+    g.lineJoin='round'; g.lineCap='round';
+    if(s.dash) g.setLineDash(s.dash);
+    g.stroke();
+    g.setLineDash([]);
   });
   return {Y,lo,hi};
 }
@@ -431,11 +434,18 @@ function dataBox(b,series){
   g.strokeStyle='#d6dade'; g.lineWidth=1; g.strokeRect(px(b.x),px(b.y),Math.round(b.w),Math.round(b.h));
   const each=b.h/series.length;
   series.forEach((s,i)=>{
-    plot({x:b.x+2,y:b.y+i*each+2,w:b.w-4,h:each-4},
-         s.ghost? [{data:s.ghost,colour:'#cfd3d8',width:1.3},
-                   {data:s.data,colour:s.line,fill:s.fill,width:1.6}]
-                : [{data:s.data,colour:s.line,fill:s.fill,width:1.6}],
-         {lo:s.lo,hi:s.hi});
+    const cell={x:b.x+2,y:b.y+i*each+2,w:b.w-4,h:each-4};
+    /* one scale for both, worked out before either is drawn */
+    let lo=s.lo, hi=s.hi;
+    if(lo===undefined||hi===undefined){
+      lo=Infinity; hi=-Infinity;
+      [s.data, s.ghost].forEach(arr=>arr&&arr.forEach(v=>{ if(v<lo)lo=v; if(v>hi)hi=v; }));
+      if(!isFinite(lo)){ lo=0; hi=1; }
+      const pd=(hi-lo)*0.12||0.5; lo-=pd; hi+=pd;
+    }
+    plot(cell,[{data:s.data,colour:s.line,fill:s.fill,width:1.6}],{lo,hi});
+    /* the old shape goes ON TOP, or the fill hides it completely */
+    if(s.ghost) plot(cell,[{data:s.ghost,colour:'#6b7280',width:1.7,dash:[5,4]}],{lo,hi});
     if(i) { g.strokeStyle='#e8ebee'; g.lineWidth=1;
             g.beginPath(); g.moveTo(b.x,px(b.y+i*each)); g.lineTo(b.x+b.w,px(b.y+i*each)); g.stroke(); }
   });
@@ -525,21 +535,17 @@ function drawCircuit(){
     dataBox(box,series); boxes.push({box,s,series});
   });
 
-  /* one cursor, every plot at once */
+  /* One cursor across every plot — but only while the pointer is actually
+     over one of them, and with no text panel floating over the schematic. */
+  hoverBoxes=boxes.map(b=>b.box);
   if(cursor!==null && boxes.length){
-    const i=Math.min(d.t.length-1,Math.max(0,Math.round(cursor*(d.t.length-1))));
     boxes.forEach(({box})=>{
       const cx=box.x+cursor*box.w;
       g.strokeStyle='rgba(255,106,26,.9)'; g.lineWidth=1;
       g.beginPath(); g.moveTo(px(cx),box.y); g.lineTo(px(cx),box.y+box.h); g.stroke();
     });
-    let txt='t = '+d.t[i].toFixed(3)+' s\n';
-    txt+='base 1  '+d.vb1[i].toFixed(2).padStart(6)+' V\n';
-    txt+='coll 1  '+d.vc1[i].toFixed(2).padStart(6)+' V   '+d.iRc1[i].toFixed(2).padStart(6)+' mA\n';
-    txt+='base 2  '+d.vb2[i].toFixed(2).padStart(6)+' V\n';
-    txt+='coll 2  '+d.vc2[i].toFixed(2).padStart(6)+' V   '+d.iRc2[i].toFixed(2).padStart(6)+' mA';
-    showReadout(txt,cursor);
-  } else hideReadout();
+  }
+  hideReadout();
 
   caption([
     'the schematic. it shows how it is wired, and hides every number.',
@@ -602,7 +608,8 @@ function drawBeam(){
     metrics.push({sp,box,m:plot(box,series,{zeroLine:true})});
   });
 
-  if(cursor!==null){
+  hoverBoxes=metrics.map(m=>m.box);
+  if(cursor!==null && metrics.length){
     const xx=cursor*BEAM.L, i=Math.min(b.x.length-1,Math.round(cursor*(b.x.length-1)));
     g.strokeStyle='rgba(255,106,26,.9)'; g.lineWidth=1;
     g.beginPath(); g.moveTo(px(X(xx)),top+6); g.lineTo(px(X(xx)),top+rh*bands-24); g.stroke();
@@ -620,7 +627,7 @@ function drawBeam(){
     'and the shape it actually takes. drag a load — the old shape stays behind.'
   ][stage], null, 'max |M| '+Mmax.toFixed(1)+' kNm    max deflection '+(dmax*1000).toFixed(1)+' mm');
 }
-let loadHandles={};
+let loadHandles={}, hoverBoxes=[];
 
 function caption(text,period,extra){
   g.fillStyle='#2b313a'; g.font='500 14px IBM Plex Sans, sans-serif';
@@ -701,8 +708,11 @@ sheet.addEventListener('pointermove',e=>{
     BEAM.loads[dragging].P=Math.max(0.5,Math.min(40,dragP0+(dragY0-(e.clientY-r.top))*0.12));
     recompute(true); draw(); return;
   }
-  cursor=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
-  if(!(running&&view==='circuit')) draw();
+  const mx=(e.clientX-r.left)*(W/r.width), my=(e.clientY-r.top)*(H/r.height);
+  const over=hoverBoxes.find(b=>mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h);
+  const was=cursor;
+  cursor = over ? Math.max(0,Math.min(1,(mx-over.x)/over.w)) : null;
+  if(!(running&&view==='circuit') && cursor!==was) draw();
 });
 sheet.addEventListener('pointerleave',()=>{ cursor=null; if(!(running&&view==='circuit')) draw(); });
 sheet.addEventListener('pointerdown',e=>{
