@@ -505,50 +505,6 @@ if (dropBar > 1) {
     ctx.font = "22px sans-serif";
     ctx.fillText("pressure below zero — it would cavitate", 62, 618);
 }`
-},
-
-wave: { label:'Vibration', animated:true, code:
-`// Two waves added together — the reason machines shake.
-// Drag freqB from 3.4 towards 3 and watch the beat appear.
-
-var freqA = 3;
-var freqB = 3.4;
-var ampA  = 90;
-var ampB  = 70;
-var decay = 0;
-
-ctx.fillStyle = "#0f1420";
-ctx.fillRect(0, 0, 640, 640);
-
-function trace (colour, thickness, fn) {
-    ctx.strokeStyle = colour;
-    ctx.lineWidth = thickness;
-    ctx.beginPath();
-    for (var x = 0; x <= 640; x++) {
-        ctx.lineTo(x, 320 + fn(x / 640 * 6.2832));
-    }
-    ctx.stroke();
-}
-
-function envelope (u) {
-    return Math.exp(-decay * u);
-}
-
-trace("#39c6e8", 1.5, function (u) {
-    return ampA * Math.sin(u * freqA + t) * envelope(u) * 0.5;
-});
-
-trace("#ff6a1a", 1.5, function (u) {
-    return ampB * Math.sin(u * freqB + t) * envelope(u) * 0.5;
-});
-
-trace("#eceff4", 3, function (u) {
-    return (ampA * Math.sin(u * freqA + t)
-          + ampB * Math.sin(u * freqB + t)) * envelope(u) * 0.5;
-});
-
-ctx.fillStyle = "#8792a6";
-ctx.fillRect(0, 319, 640, 1);`
 }
 };
 
